@@ -26,12 +26,13 @@ pipeline {
             steps {
                 script {
                     def pomContent = readFile('pom.xml')
-                    def versionMatch = pomContent =~ '<version>(.+?)</version>'
-                    if (!versionMatch) {
+                    // Immediately extract just the string to avoid passing regex object
+                    def baseVersion = pomContent.find(/<version>(.+?)<\/version>/) { match, ver -> return ver }
+
+                    if (!baseVersion) {
                         error("Could not find <version> in pom.xml")
                     }
 
-                    def baseVersion = versionMatch[0][1].trim()
                     echo "Base version from pom.xml: ${baseVersion}"
 
                     def finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
@@ -41,7 +42,10 @@ pipeline {
                     bat "mvn versions:set -DnewVersion=${finalVersion}"
                     bat "mvn versions:commit"
 
-                    env.VERSION = finalVersion
+                    // Assign version to environment in safe way
+                    currentBuild.displayName = finalVersion
+                    // Store in a file for later post section
+                    writeFile file: 'build_version.txt', text: finalVersion
                 }
             }
         }
@@ -68,7 +72,10 @@ pipeline {
 
     post {
         always {
-            echo "Final Version used for build: ${env.VERSION}"
+            script {
+                def builtVersion = fileExists('build_version.txt') ? readFile('build_version.txt').trim() : 'Unknown'
+                echo "Final Version used for build: ${builtVersion}"
+            }
         }
     }
 }
