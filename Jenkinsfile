@@ -27,14 +27,28 @@ pipeline {
                 script {
                     def pomContent = readFile('pom.xml')
 
-                    // Safely extract version with inline find — avoid holding matcher object
                     def baseVersion = null
-                    pomContent.eachMatch(/<artifactId>[^<]+<\/artifactId>\s*<version>([^<]+)<\/version>/) { match, ver ->
-                        baseVersion = ver
+                    def inParentBlock = false
+
+                    // Extract first <version> outside <parent> block
+                    pomContent.eachLine { line ->
+                        if (line.contains("<parent>")) {
+                            inParentBlock = true
+                        }
+                        if (line.contains("</parent>")) {
+                            inParentBlock = false
+                        }
+                        if (!inParentBlock && line.trim() =~ /<version>(.+)<\/version>/) {
+                            def matcher = (line =~ /<version>(.+)<\/version>/)
+                            if (matcher) {
+                                baseVersion = matcher[0][1].trim()
+                                return
+                            }
+                        }
                     }
 
                     if (!baseVersion) {
-                        error("Could not find <version> in pom.xml after artifactId")
+                        error("Could not find <version> in pom.xml (outside <parent>)")
                     }
 
                     echo "Base version from pom.xml: ${baseVersion}"
