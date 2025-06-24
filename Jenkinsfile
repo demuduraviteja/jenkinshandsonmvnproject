@@ -1,34 +1,45 @@
 pipeline {
-    agent any
+    agent any   // Use any available Jenkins agent (your laptop in this case)
 
     tools {
-        maven 'maven-3.9.6'
-        jdk 'JDK11'
+        maven 'maven-3.9.6'   // Uses the Maven tool configured in Jenkins global config
+        jdk 'JDK11'           // Uses the JDK 11 installation configured in Jenkins
     }
 
     parameters {
-        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')
+        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')  
+        // Dropdown to choose whether to Build or Deploy
     }
 
     stages {
+
         stage('Initialize') {
             steps {
-                bat 'mvn --version'
-                bat 'java -version'
+                bat 'mvn --version'   // Verifies Maven setup on Windows
+                bat 'java -version'   // Verifies Java setup on Windows
             }
         }
 
         stage('Determine Version') {
             steps {
                 script {
-                    def rawVersion = readMavenPom().getVersion()
-                    def baseVersion = rawVersion
+                    // Read the entire pom.xml content
+                    def pomContent = readFile 'pom.xml'
+
+                    // Use regular expression to find <version> inside <project>
+                    def matcher = pomContent =~ '<project[^>]*>.*?<version>([^<]+)</version>'
+                    def rawVersion = matcher ? matcher[0][1] : '0.0.1'
+
+                    // Build a custom version string with BUILD_NUMBER and timestamp
                     def timestamp = new Date().format("yyyyMMdd.HHmmss")
-                    def fullVersion = "${baseVersion}-SNAPSHOT-dev-${BUILD_NUMBER}-${timestamp}"
+                    def fullVersion = "${rawVersion}-SNAPSHOT-dev-${BUILD_NUMBER}-${timestamp}"
                     env.VERSION = fullVersion
 
-                    bat "mvn versions:set -DnewVersion=${env.VERSION}"
-                    bat "mvn versions:commit"
+                    // Replace the existing version in pom.xml with the new version
+                    def updatedPom = pomContent.replaceFirst('<version>[^<]+</version>', "<version>${env.VERSION}</version>")
+
+                    // Write the updated content back to pom.xml
+                    writeFile file: 'pom.xml', text: updatedPom
 
                     echo "Generated Dev Version: ${env.VERSION}"
                 }
@@ -40,7 +51,7 @@ pipeline {
                 expression { params.Action == 'Build' }
             }
             steps {
-                bat 'mvn clean install -DskipTests=true'
+                bat 'mvn clean install -DskipTests=true'  // Compile and package the application
             }
         }
 
@@ -50,14 +61,14 @@ pipeline {
             }
             steps {
                 echo "Simulating deploy... No actual push."
-                bat 'dir target\\*.jar || echo No jar built.'
+                bat 'dir target\\*.jar || echo No jar built.'   // Show the built JAR file (if any)
             }
         }
     }
 
     post {
         always {
-            echo "Lower environment build complete. Final Version: ${env.VERSION}"
+            echo "Lower environment build complete. Final Version: ${env.VERSION}"  // Always print the final version
         }
     }
 }
