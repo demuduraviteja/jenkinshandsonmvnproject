@@ -13,30 +13,22 @@ pipeline {
     stages {
         stage('Initialize') {
             steps {
-                sh 'mvn --version'
-                sh 'java -version'
+                bat 'mvn --version'
+                bat 'java -version'
             }
         }
 
         stage('Determine Version') {
             steps {
                 script {
-                    // Read <version> from pom.xml (e.g., 2.0.0)
                     def rawVersion = readMavenPom().getVersion()
-
-                    // Use the raw version directly as base
                     def baseVersion = rawVersion
-
-                    // Add suffixes for dev environment
                     def timestamp = new Date().format("yyyyMMdd.HHmmss")
                     def fullVersion = "${baseVersion}-SNAPSHOT-dev-${BUILD_NUMBER}-${timestamp}"
-
-                    // Export version to environment
                     env.VERSION = fullVersion
 
-                    // Update pom.xml with full version
-                    sh "mvn versions:set -DnewVersion=${env.VERSION}"
-                    sh "mvn versions:commit"
+                    bat "mvn versions:set -DnewVersion=${env.VERSION}"
+                    bat "mvn versions:commit"
 
                     echo "Generated Dev Version: ${env.VERSION}"
                 }
@@ -48,7 +40,7 @@ pipeline {
                 expression { params.Action == 'Build' }
             }
             steps {
-                sh 'mvn clean install -DskipTests=true'
+                bat 'mvn clean install -DskipTests=true'
             }
         }
 
@@ -58,7 +50,7 @@ pipeline {
             }
             steps {
                 echo "Simulating deploy... No actual push."
-                sh 'ls -l target/*.jar || echo "No jar built."'
+                bat 'dir target\\*.jar || echo No jar built.'
             }
         }
     }
