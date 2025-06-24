@@ -25,12 +25,14 @@ pipeline {
         stage('Determine Version') {
             steps {
                 script {
-                    // Safely parse pom.xml using XmlSlurper
-                    def pom = new XmlSlurper().parse(new File('pom.xml'))
-                    def baseVersion = pom.version.text().trim()
+                    def pomContent = readFile('pom.xml')
+
+                    // Skip <parent><version> and match the first <version> after <artifactId> in project scope
+                    def matcher = pomContent =~ /<artifactId>[^<]+<\/artifactId>\s*<version>([^<]+)<\/version>/
+                    def baseVersion = matcher ? matcher[0][1] : null
 
                     if (!baseVersion) {
-                        error("Could not find <version> in pom.xml")
+                        error("Could not find <version> in pom.xml after artifactId")
                     }
 
                     echo "Base version from pom.xml: ${baseVersion}"
@@ -38,11 +40,9 @@ pipeline {
                     def finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
                     echo "Final dev version: ${finalVersion}"
 
-                    // Update pom.xml for this build (does not commit to Git)
                     bat "mvn versions:set -DnewVersion=${finalVersion}"
                     bat "mvn versions:commit"
 
-                    // Display version in Jenkins UI and store in file
                     currentBuild.displayName = finalVersion
                     writeFile file: 'build_version.txt', text: finalVersion
                 }
