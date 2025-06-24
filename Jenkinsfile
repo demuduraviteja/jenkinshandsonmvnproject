@@ -27,9 +27,11 @@ pipeline {
                 script {
                     def pomContent = readFile('pom.xml')
 
-                    // Skip <parent><version> and match the first <version> after <artifactId> in project scope
-                    def matcher = pomContent =~ /<artifactId>[^<]+<\/artifactId>\s*<version>([^<]+)<\/version>/
-                    def baseVersion = matcher ? matcher[0][1] : null
+                    // Safely extract version with inline find — avoid holding matcher object
+                    def baseVersion = null
+                    pomContent.eachMatch(/<artifactId>[^<]+<\/artifactId>\s*<version>([^<]+)<\/version>/) { match, ver ->
+                        baseVersion = ver
+                    }
 
                     if (!baseVersion) {
                         error("Could not find <version> in pom.xml after artifactId")
