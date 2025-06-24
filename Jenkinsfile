@@ -26,23 +26,23 @@ pipeline {
             steps {
                 script {
                     def pomContent = readFile('pom.xml')
-
+                    def lines = pomContent.split('\n')
                     def baseVersion = null
-                    def inParentBlock = false
+                    def inParent = false
 
-                    // Extract first <version> outside <parent> block
-                    pomContent.eachLine { line ->
-                        if (line.contains("<parent>")) {
-                            inParentBlock = true
+                    for (line in lines) {
+                        if (line.contains('<parent>')) {
+                            inParent = true
                         }
-                        if (line.contains("</parent>")) {
-                            inParentBlock = false
+                        if (line.contains('</parent>')) {
+                            inParent = false
                         }
-                        if (!inParentBlock && line.trim() =~ /<version>(.+)<\/version>/) {
-                            def matcher = (line =~ /<version>(.+)<\/version>/)
+
+                        if (!inParent && line.trim() =~ /<version>(.+)<\/version>/) {
+                            def matcher = (line.trim() =~ /<version>(.+)<\/version>/)
                             if (matcher) {
                                 baseVersion = matcher[0][1].trim()
-                                return
+                                break
                             }
                         }
                     }
