@@ -53,7 +53,7 @@ pipeline {
 
                     echo "Base version from pom.xml: ${baseVersion}"
 
-                    def finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-{env.BUILD_ID}"
+                    def finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
                     echo "Final dev version: ${finalVersion}"
 
                     bat "mvn versions:set -DnewVersion=${finalVersion}"
