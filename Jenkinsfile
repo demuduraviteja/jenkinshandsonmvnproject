@@ -8,6 +8,8 @@ pipeline {
 
     parameters {
         choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')
+        string(name: 'BRANCH_NAME', defaultValue: 'develop_nexus_test', description: 'Git Branch Name')
+        choice(name: 'ENV', choices: ['dev', 'sit'], description: 'Deployment Environment')
     }
 
     environment {
@@ -53,8 +55,19 @@ pipeline {
 
                     echo "Base version from pom.xml: ${baseVersion}"
 
-                    def finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
-                    echo "Final dev version: ${finalVersion}"
+                    def branchName = params.BRANCH_NAME
+                    def envName = params.ENV
+                    def finalVersion = ""
+
+                    if (branchName ==~ /^develop.*/ && envName == 'sit') {
+                        finalVersion = "${baseVersion}-SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
+                    } else if (branchName ==~ /^(feature|hotfix|bugfix).*/ && envName == 'dev') {
+                        finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
+                    } else {
+                        error("Branch '${branchName}' with environment '${envName}' does not match versioning rules")
+                    }
+
+                    echo "Final version: ${finalVersion}"
 
                     bat "mvn versions:set -DnewVersion=${finalVersion}"
                     bat "mvn versions:commit"
