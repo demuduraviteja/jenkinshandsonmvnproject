@@ -7,9 +7,10 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')
-        string(name: 'BRANCH_NAME', defaultValue: 'develop_nexus_test', description: 'Git Branch Name')
-        choice(name: 'ENV', choices: ['dev', 'sit'], description: 'Deployment Environment')
+        string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
+        string(name: 'BRANCH_NAME', defaultValue: 'develop', description: 'Git branch to build')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Deployment Environment')
+        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Choose Build or Deploy')
     }
 
     environment {
@@ -17,6 +18,16 @@ pipeline {
     }
 
     stages {
+        stage('Checkout Code') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "${params.BRANCH_NAME}"]],
+                    userRemoteConfigs: [[url: "${params.GIT_REPO_URL}"]]
+                ])
+            }
+        }
+
         stage('Initialize') {
             steps {
                 bat 'mvn --version'
@@ -33,12 +44,8 @@ pipeline {
                     def inParent = false
 
                     for (line in lines) {
-                        if (line.contains('<parent>')) {
-                            inParent = true
-                        }
-                        if (line.contains('</parent>')) {
-                            inParent = false
-                        }
+                        if (line.contains('<parent>')) inParent = true
+                        if (line.contains('</parent>')) inParent = false
 
                         if (!inParent && line.trim() =~ /<version>(.+)<\/version>/) {
                             def matcher = (line.trim() =~ /<version>(.+)<\/version>/)
@@ -53,21 +60,21 @@ pipeline {
                         error("Could not find <version> in pom.xml (outside <parent>)")
                     }
 
-                    echo "Base version from pom.xml: ${baseVersion}"
+                    echo "Base version: ${baseVersion}"
+                    def finalVersion = ''
 
-                    def branchName = params.BRANCH_NAME
-                    def envName = params.ENV
-                    def finalVersion = ""
-
-                    if (branchName ==~ /^develop.*/ && envName == 'sit') {
+                    if (params.ENVIRONMENT == 'sit' && params.BRANCH_NAME.startsWith('develop')) {
                         finalVersion = "${baseVersion}-SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
-                    } else if (branchName ==~ /^(feature|hotfix|bugfix).*/ && envName == 'dev') {
+                    } else if (params.ENVIRONMENT == 'dev' && (
+                               params.BRANCH_NAME.startsWith('feature') ||
+                               params.BRANCH_NAME.startsWith('hotfix') ||
+                               params.BRANCH_NAME.startsWith('bugfix'))) {
                         finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
                     } else {
-                        error("Branch '${branchName}' with environment '${envName}' does not match versioning rules")
+                        error("Invalid branch/environment combination for versioning")
                     }
 
-                    echo "Final version: ${finalVersion}"
+                    echo "Final Version: ${finalVersion}"
 
                     bat "mvn versions:set -DnewVersion=${finalVersion}"
                     bat "mvn versions:commit"
@@ -92,7 +99,7 @@ pipeline {
                 expression { params.Action == 'Deploy' }
             }
             steps {
-                echo "Simulated deployment. Artifacts:"
+                echo "Simulated Deployment Output:"
                 bat 'dir target\\*.jar || echo No JAR found.'
             }
         }
