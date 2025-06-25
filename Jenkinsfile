@@ -106,7 +106,7 @@ pipeline {
     }
 
     post {
-        always {
+        success {
             script {
                 def builtVersion = fileExists('build_version.txt') ? readFile('build_version.txt').trim() : 'Unknown'
                 echo "Final Version used for build: ${builtVersion}"
