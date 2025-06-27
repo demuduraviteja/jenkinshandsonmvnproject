@@ -9,8 +9,8 @@ pipeline {
     parameters {
         string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
         string(name: 'BRANCH_NAME', defaultValue: 'develop', description: 'Git branch to build')
-        choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Deployment Environment')
-        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Choose Build or Deploy')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Target environment')
+        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')
     }
 
     environment {
@@ -20,6 +20,7 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
+                echo "📥 Checking out branch: ${params.BRANCH_NAME}"
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: "${params.BRANCH_NAME}"]],
@@ -30,57 +31,72 @@ pipeline {
 
         stage('Initialize') {
             steps {
-                bat 'mvn --version'
-                bat 'java -version'
+                echo "🔧 Verifying tools"
+                sh 'mvn --version'
+                sh 'java -version'
             }
         }
 
-        stage('Determine Version') {
+        stage('Validate Branch and Environment') {
             steps {
                 script {
-                    def pomContent = readFile('pom.xml')
-                    def lines = pomContent.split('\n')
-                    def baseVersion = null
-                    def inParent = false
+                    def isValid = false
 
-                    for (line in lines) {
-                        if (line.contains('<parent>')) inParent = true
-                        if (line.contains('</parent>')) inParent = false
-
-                        if (!inParent && line.trim() =~ /<version>(.+)<\/version>/) {
-                            def matcher = (line.trim() =~ /<version>(.+)<\/version>/)
-                            if (matcher) {
-                                baseVersion = matcher[0][1].trim()
-                                break
-                            }
-                        }
+                    if (params.BRANCH_NAME == 'develop' && params.ENVIRONMENT == 'sit') {
+                        isValid = true
+                    } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix')) && params.ENVIRONMENT == 'dev') {
+                        isValid = true
                     }
 
-                    if (!baseVersion) {
-                        error("Could not find <version> in pom.xml (outside <parent>)")
-                    }
-
-                    echo "Base version: ${baseVersion}"
-                    def finalVersion = ''
-
-                    if (params.ENVIRONMENT == 'sit' && params.BRANCH_NAME.startsWith('develop')) {
-                        finalVersion = "${baseVersion}-SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
-                    } else if (params.ENVIRONMENT == 'dev' && (
-                               params.BRANCH_NAME.startsWith('feature') ||
-                               params.BRANCH_NAME.startsWith('hotfix') ||
-                               params.BRANCH_NAME.startsWith('bugfix'))) {
-                        finalVersion = "${baseVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
+                    if (!isValid) {
+                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, Environment = ${params.ENVIRONMENT}"
                     } else {
-                        error("Invalid branch/environment combination for versioning")
+                        echo "✅ Valid combination: ${params.BRANCH_NAME} → ${params.ENVIRONMENT}"
+                    }
+                }
+            }
+        }
+
+        stage('Auto-Increment Version') {
+            steps {
+                script {
+                    // Read current version
+                    def pomContent = readFile('pom.xml')
+                    def matcher = pomContent =~ /<version>([\d\.]+)<\/version>/
+                    if (!matcher) {
+                        error "❌ Version not found in pom.xml"
                     }
 
-                    echo "Final Version: ${finalVersion}"
+                    def currentVersion = matcher[0][1].trim()
+                    echo "📄 Current version in pom.xml: ${currentVersion}"
 
-                    bat "mvn versions:set -DnewVersion=${finalVersion}"
-                    bat "mvn versions:commit"
+                    def (major, minor, patch) = currentVersion.tokenize('.').collect { it as int }
+                    def incrementType = ''
 
-                    currentBuild.displayName = finalVersion
-                    writeFile file: 'build_version.txt', text: finalVersion
+                    if (params.BRANCH_NAME == 'develop') {
+                        minor += 1
+                        patch = 0
+                        incrementType = 'minor'
+                    } else if (params.BRANCH_NAME.startsWith('feature')) {
+                        minor += 1
+                        patch = 0
+                        incrementType = 'minor'
+                    } else if (params.BRANCH_NAME.startsWith('hotfix')) {
+                        patch += 1
+                        incrementType = 'patch'
+                    } else {
+                        error "❌ Unsupported branch for versioning: ${params.BRANCH_NAME}"
+                    }
+
+                    def newVersion = "${major}.${minor}.${patch}"
+                    echo "🔁 Auto-incremented (${incrementType}) version: ${newVersion}"
+
+                    // Apply version locally
+                    sh "mvn versions:set -DnewVersion=${newVersion}"
+                    sh "mvn versions:commit"
+
+                    currentBuild.displayName = newVersion
+                    writeFile file: 'build_version.txt', text: newVersion
                 }
             }
         }
@@ -90,7 +106,8 @@ pipeline {
                 expression { params.Action == 'Build' }
             }
             steps {
-                bat 'mvn clean install -DskipTests=true'
+                echo "🛠 Running Maven build"
+                sh 'mvn clean install -DskipTests=true'
             }
         }
 
@@ -99,8 +116,8 @@ pipeline {
                 expression { params.Action == 'Deploy' }
             }
             steps {
-                echo "Simulated Deployment Output:"
-                bat 'dir target\\*.jar || echo No JAR found.'
+                echo "🚀 Simulated deploy to ${params.ENVIRONMENT}"
+                sh 'ls -l target/*.jar || echo "No JAR file found."'
             }
         }
     }
@@ -109,8 +126,11 @@ pipeline {
         success {
             script {
                 def builtVersion = fileExists('build_version.txt') ? readFile('build_version.txt').trim() : 'Unknown'
-                echo "Final Version used for build: ${builtVersion}"
+                echo "✅ Build succeeded with version: ${builtVersion}"
             }
+        }
+        failure {
+            echo "❌ Pipeline failed. Check the logs for errors."
         }
     }
 }
