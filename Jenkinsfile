@@ -14,7 +14,7 @@ pipeline {
     }
 
     environment {
-        TIMESTAMP = new Date().format("yyyyMMdd.HHmmss")
+        TIMESTAMP = "${new Date().format('yyyyMMdd.HHmmss')}"
     }
 
     stages {
@@ -61,11 +61,13 @@ pipeline {
             steps {
                 script {
                     def pomContent = readFile('pom.xml')
-                    def versionMatch = (pomContent =~ /<version>([\d\.]+)<\/version>/)
-                    if (!versionMatch || versionMatch.size() == 0) {
+                    def matcher = (pomContent =~ /<version>([\d\.]+)<\/version>/)
+
+                    if (!matcher.find()) {
                         error "❌ Version not found in pom.xml"
                     }
-                    def currentVersion = versionMatch[0][1].trim()
+
+                    def currentVersion = matcher.group(1).trim()
                     echo "📄 Current version in pom.xml: ${currentVersion}"
 
                     def (major, minor, patch) = currentVersion.tokenize('.').collect { it as int }
