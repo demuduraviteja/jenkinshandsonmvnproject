@@ -32,8 +32,8 @@ pipeline {
         stage('Initialize') {
             steps {
                 echo "🔧 Verifying tools"
-                sh 'mvn --version'
-                sh 'java -version'
+                bat 'mvn --version'
+                bat 'java -version'
             }
         }
 
@@ -60,7 +60,6 @@ pipeline {
         stage('Auto-Increment Version') {
             steps {
                 script {
-                    // Read current version
                     def pomContent = readFile('pom.xml')
                     def matcher = pomContent =~ /<version>([\d\.]+)<\/version>/
                     if (!matcher) {
@@ -91,9 +90,8 @@ pipeline {
                     def newVersion = "${major}.${minor}.${patch}"
                     echo "🔁 Auto-incremented (${incrementType}) version: ${newVersion}"
 
-                    // Apply version locally
-                    sh "mvn versions:set -DnewVersion=${newVersion}"
-                    sh "mvn versions:commit"
+                    bat "mvn versions:set -DnewVersion=${newVersion}"
+                    bat "mvn versions:commit"
 
                     currentBuild.displayName = newVersion
                     writeFile file: 'build_version.txt', text: newVersion
@@ -107,7 +105,7 @@ pipeline {
             }
             steps {
                 echo "🛠 Running Maven build"
-                sh 'mvn clean install -DskipTests=true'
+                bat 'mvn clean install -DskipTests=true'
             }
         }
 
@@ -117,7 +115,7 @@ pipeline {
             }
             steps {
                 echo "🚀 Simulated deploy to ${params.ENVIRONMENT}"
-                sh 'ls -l target/*.jar || echo "No JAR file found."'
+                bat 'dir target\\*.jar || echo No JAR file found.'
             }
         }
     }
