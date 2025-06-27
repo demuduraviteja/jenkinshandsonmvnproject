@@ -18,6 +18,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
                 echo "📥 Checking out branch: ${params.BRANCH_NAME}"
@@ -44,7 +45,7 @@ pipeline {
 
                     if ((params.BRANCH_NAME == 'develop' || params.BRANCH_NAME.startsWith('develop')) && params.ENVIRONMENT == 'sit') {
                         isValid = true
-                    } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix')) && params.ENVIRONMENT == 'dev') {
+                    } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) && params.ENVIRONMENT == 'dev') {
                         isValid = true
                     }
 
@@ -61,41 +62,62 @@ pipeline {
             steps {
                 script {
                     def pomContent = readFile('pom.xml')
-                    def matcher = (pomContent =~ /<version>([\d\.]+)<\/version>/)
+                    def versionLine = null
+                    def insideParent = false
 
-                    if (!matcher.find()) {
-                        error "❌ Version not found in pom.xml"
+                    for (line in pomContent.readLines()) {
+                        line = line.trim()
+                        if (line.contains('<parent>')) {
+                            insideParent = true
+                        } else if (line.contains('</parent>')) {
+                            insideParent = false
+                        }
+
+                        if (!insideParent && line.contains('<version>') && line.contains('</version>')) {
+                            versionLine = line
+                            break
+                        }
                     }
 
-                    def currentVersion = matcher.group(1).trim()
-                    echo "📄 Current version in pom.xml: ${currentVersion}"
+                    if (!versionLine) {
+                        error("❌ <version> tag not found in pom.xml (outside <parent>)")
+                    }
 
-                    def (major, minor, patch) = currentVersion.tokenize('.').collect { it as int }
+                    def versionMatch = versionLine.replaceAll(/.*<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>.*/, '$1,$2,$3')
+                    def (majorStr, minorStr, patchStr) = versionMatch.tokenize(',')
+
+                    def major = majorStr.toInteger()
+                    def minor = minorStr.toInteger()
+                    def patch = patchStr.toInteger()
+
                     def incrementType = ''
-
-                    if (params.BRANCH_NAME.startsWith('develop')) {
-                        minor += 1
-                        patch = 0
-                        incrementType = 'minor'
+                    if (params.BRANCH_NAME.startsWith('develop') || params.BRANCH_NAME == 'develop') {
+                        minor += 1; patch = 0; incrementType = 'minor'
                     } else if (params.BRANCH_NAME.startsWith('feature')) {
-                        minor += 1
-                        patch = 0
-                        incrementType = 'minor'
-                    } else if (params.BRANCH_NAME.startsWith('hotfix')) {
-                        patch += 1
-                        incrementType = 'patch'
+                        minor += 1; patch = 0; incrementType = 'minor'
+                    } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
+                        patch += 1; incrementType = 'patch'
                     } else {
-                        error "❌ Unsupported branch for versioning: ${params.BRANCH_NAME}"
+                        error("❌ Unsupported branch for versioning: ${params.BRANCH_NAME}")
                     }
 
-                    def newVersion = "${major}.${minor}.${patch}"
-                    echo "🔁 Auto-incremented (${incrementType}) version: ${newVersion}"
+                    def autoVersion = "${major}.${minor}.${patch}"
+                    echo "🔁 Auto-incremented (${incrementType}) version: ${autoVersion}"
 
-                    bat "mvn versions:set -DnewVersion=${newVersion}"
+                    def finalVersion = ''
+                    if (params.ENVIRONMENT == 'sit') {
+                        finalVersion = "${autoVersion}-SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
+                    } else {
+                        finalVersion = "${autoVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
+                    }
+
+                    echo "📦 Final Version to use: ${finalVersion}"
+
+                    bat "mvn versions:set -DnewVersion=${finalVersion}"
                     bat "mvn versions:commit"
 
-                    currentBuild.displayName = newVersion
-                    writeFile file: 'build_version.txt', text: newVersion
+                    writeFile file: 'build_version.txt', text: finalVersion
+                    currentBuild.displayName = finalVersion
                 }
             }
         }
