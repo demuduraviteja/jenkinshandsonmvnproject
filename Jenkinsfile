@@ -42,7 +42,7 @@ pipeline {
                 script {
                     def isValid = false
 
-                    if (params.BRANCH_NAME.startsWith('develop') && params.ENVIRONMENT == 'sit') {
+                    if ((params.BRANCH_NAME == 'develop' || params.BRANCH_NAME.startsWith('develop')) && params.ENVIRONMENT == 'sit') {
                         isValid = true
                     } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix')) && params.ENVIRONMENT == 'dev') {
                         isValid = true
@@ -61,12 +61,11 @@ pipeline {
             steps {
                 script {
                     def pomContent = readFile('pom.xml')
-                    def matcher = pomContent =~ /<version>([\d\.]+)<\/version>/
-                    if (!matcher) {
+                    def versionMatch = (pomContent =~ /<version>([\d\.]+)<\/version>/)
+                    if (!versionMatch || versionMatch.size() == 0) {
                         error "❌ Version not found in pom.xml"
                     }
-
-                    def currentVersion = matcher[0][1].trim()
+                    def currentVersion = versionMatch[0][1].trim()
                     echo "📄 Current version in pom.xml: ${currentVersion}"
 
                     def (major, minor, patch) = currentVersion.tokenize('.').collect { it as int }
