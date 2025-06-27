@@ -8,7 +8,7 @@ pipeline {
 
     parameters {
         string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
-        string(name: 'BRANCH_NAME', defaultValue: 'develop', description: 'Git branch to build')
+        string(name: 'BRANCH_NAME', defaultValue: '', description: 'Git branch to build')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Target environment')
         choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')
     }
