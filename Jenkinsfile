@@ -42,7 +42,7 @@ pipeline {
                 script {
                     def isValid = false
 
-                    if (params.BRANCH_NAME == 'develop' && params.ENVIRONMENT == 'sit') {
+                    if (params.BRANCH_NAME.startsWith('develop') && params.ENVIRONMENT == 'sit') {
                         isValid = true
                     } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix')) && params.ENVIRONMENT == 'dev') {
                         isValid = true
@@ -72,7 +72,7 @@ pipeline {
                     def (major, minor, patch) = currentVersion.tokenize('.').collect { it as int }
                     def incrementType = ''
 
-                    if (params.BRANCH_NAME == 'develop') {
+                    if (params.BRANCH_NAME.startsWith('develop')) {
                         minor += 1
                         patch = 0
                         incrementType = 'minor'
