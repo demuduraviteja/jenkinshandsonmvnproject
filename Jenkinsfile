@@ -10,7 +10,6 @@ pipeline {
         string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
         string(name: 'BRANCH_NAME', defaultValue: '', description: 'Git branch to build')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Target environment')
-        choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Build or Deploy')
     }
 
     environment {
@@ -61,60 +60,35 @@ pipeline {
         stage('Auto-Increment Version') {
             steps {
                 script {
-                    def pomContent = readFile('pom.xml')
-                    def versionLine = null
-                    def insideParent = false
+                    def suffix = (params.ENVIRONMENT == 'sit') 
+                        ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
+                        : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
 
-                    for (line in pomContent.readLines()) {
-                        line = line.trim()
-                        if (line.contains('<parent>')) {
-                            insideParent = true
-                        } else if (line.contains('</parent>')) {
-                            insideParent = false
-                        }
+                    def mavenVersionCommand = ""
 
-                        if (!insideParent && line.contains('<version>') && line.contains('</version>')) {
-                            versionLine = line
-                            break
-                        }
-                    }
-
-                    if (!versionLine) {
-                        error("❌ <version> tag not found in pom.xml (outside <parent>)")
-                    }
-
-                    def versionMatch = versionLine.replaceAll(/.*<version>([0-9]+)\.([0-9]+)\.([0-9]+)<\/version>.*/, '$1,$2,$3')
-                    def (majorStr, minorStr, patchStr) = versionMatch.tokenize(',')
-
-                    def major = majorStr.toInteger()
-                    def minor = minorStr.toInteger()
-                    def patch = patchStr.toInteger()
-
-                    def incrementType = ''
-                    if (params.BRANCH_NAME.startsWith('develop') || params.BRANCH_NAME == 'develop') {
-                        minor += 1; patch = 0; incrementType = 'minor'
-                    } else if (params.BRANCH_NAME.startsWith('feature')) {
-                        minor += 1; patch = 0; incrementType = 'minor'
+                    if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
+                        mavenVersionCommand = """
+                            mvn build-helper:parse-version versions:set ^
+                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.nextMinorVersion}.0-${suffix} ^
+                                versions:commit
+                        """
+                        echo "📈 Feature/Develop branch: Bumping minor version (patch set to 0)"
                     } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
-                        patch += 1; incrementType = 'patch'
+                        mavenVersionCommand = """
+                            mvn build-helper:parse-version versions:set ^
+                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-${suffix} ^
+                                versions:commit
+                        """
+                        echo "🔧 Hotfix/Bugfix branch: Bumping patch version"
                     } else {
-                        error("❌ Unsupported branch for versioning: ${params.BRANCH_NAME}")
+                        error "❌ Unsupported branch type for versioning: ${params.BRANCH_NAME}"
                     }
 
-                    def autoVersion = "${major}.${minor}.${patch}"
-                    echo "🔁 Auto-incremented (${incrementType}) version: ${autoVersion}"
+                    bat mavenVersionCommand
 
-                    def finalVersion = ''
-                    if (params.ENVIRONMENT == 'sit') {
-                        finalVersion = "${autoVersion}-SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
-                    } else {
-                        finalVersion = "${autoVersion}-SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}-${env.BUILD_ID}"
-                    }
-
-                    echo "📦 Final Version to use: ${finalVersion}"
-
-                    bat "mvn versions:set -DnewVersion=${finalVersion}"
-                    bat "mvn versions:commit"
+                    def pom = readMavenPom file: 'pom.xml'
+                    def finalVersion = pom.version
+                    echo "📦 Final Version set in pom.xml: ${finalVersion}"
 
                     writeFile file: 'build_version.txt', text: finalVersion
                     currentBuild.displayName = finalVersion
@@ -123,22 +97,9 @@ pipeline {
         }
 
         stage('Build') {
-            when {
-                expression { params.Action == 'Build' }
-            }
             steps {
                 echo "🛠 Running Maven build"
                 bat 'mvn clean install -DskipTests=true'
-            }
-        }
-
-        stage('Deploy (Simulated)') {
-            when {
-                expression { params.Action == 'Deploy' }
-            }
-            steps {
-                echo "🚀 Simulated deploy to ${params.ENVIRONMENT}"
-                bat 'dir target\\*.jar || echo No JAR file found.'
             }
         }
     }
