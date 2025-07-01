@@ -64,26 +64,24 @@ pipeline {
                         ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
                         : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
 
+                    def newVersion = ""
                     def mavenVersionCommand = ""
 
                     if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
-                        mavenVersionCommand = """
-                            mvn build-helper:parse-version versions:set ^
-                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.nextMinorVersion}.0-${suffix} ^
-                                versions:commit
-                        """
+                        newVersion = '${parsedVersion.majorVersion}.${parsedVersion.nextMinorVersion}.0-' + suffix
                         echo "📈 Feature/Develop branch: Bumping minor version (patch set to 0)"
                     } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
-                        mavenVersionCommand = """
-                            mvn build-helper:parse-version versions:set ^
-                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-${suffix} ^
-                                versions:commit
-                        """
+                        newVersion = '${parsedVersion.majorVersion}.${parsedVersion.minorVersion}.${parsedVersion.nextIncrementalVersion}-' + suffix
                         echo "🔧 Hotfix/Bugfix branch: Bumping patch version"
                     } else {
                         error "❌ Unsupported branch type for versioning: ${params.BRANCH_NAME}"
                     }
 
+                    mavenVersionCommand = """
+                        mvn build-helper:parse-version versions:set ^
+                            -DnewVersion=${newVersion} ^
+                            versions:commit
+                    """
                     bat mavenVersionCommand
 
                     def pom = readMavenPom file: 'pom.xml'
