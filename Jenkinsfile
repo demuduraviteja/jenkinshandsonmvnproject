@@ -3,15 +3,13 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-       // jdk 'JDK11'
+        // jdk 'JDK11'  // Uncomment if needed
     }
 
     parameters {
         string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
         string(name: 'BRANCH_NAME', defaultValue: '', description: 'Git branch to build')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Target environment')
-        // Uncomment below if you want manual Deploy trigger only
-        // choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Choose Build or Deploy')
         string(name: 'Nexus_Cred_ID', defaultValue: '', description: 'Jenkins Credentials ID for Nexus')
     }
 
@@ -36,7 +34,7 @@ pipeline {
             steps {
                 echo "🔧 Verifying tools"
                 sh 'mvn --version'
-                //sh 'java -version'
+                // sh 'java -version' // Uncomment if needed
             }
         }
 
@@ -66,27 +64,23 @@ pipeline {
                         ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
                         : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
 
-                    def mavenVersionCommand = ""
-
                     if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
-                        mavenVersionCommand = """
-                            mvn build-helper:parse-version versions:set \\
-                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.nextMinorVersion}.0-${suffix} \\
-                                versions:commit
-                        """
                         echo "📈 Feature/Develop branch: Bumping minor version (patch set to 0)"
-                    } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
-                        mavenVersionCommand = """
-                            mvn build-helper:parse-version versions:set \\
-                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-${suffix} \\
+                        sh '''
+                            mvn build-helper:parse-version versions:set \
+                                -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.nextMinorVersion}.0-''' + suffix + ''' \
                                 versions:commit
-                        """
+                        '''
+                    } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
                         echo "🔧 Hotfix/Bugfix branch: Bumping patch version"
+                        sh '''
+                            mvn build-helper:parse-version versions:set \
+                                -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.minorVersion}.\\${parsedVersion.nextIncrementalVersion}-''' + suffix + ''' \
+                                versions:commit
+                        '''
                     } else {
                         error "❌ Unsupported branch type for versioning: ${params.BRANCH_NAME}"
                     }
-
-                    sh mavenVersionCommand
 
                     def pom = readMavenPom file: 'pom.xml'
                     def finalVersion = pom.version
@@ -107,7 +101,7 @@ pipeline {
 
         stage('Deploy to Nexus') {
             when {
-                expression { params.ENVIRONMENT == 'sit' } // Add: && params.Action == 'Deploy' if you use Action param
+                expression { params.ENVIRONMENT == 'sit' }
             }
             steps {
                 echo "🚀 Deploying to Nexus for environment: ${params.ENVIRONMENT}"
