@@ -3,13 +3,16 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        jdk 'JDK11'
+       // jdk 'JDK11'
     }
 
     parameters {
         string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
         string(name: 'BRANCH_NAME', defaultValue: '', description: 'Git branch to build')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Target environment')
+        // Uncomment below if you want manual Deploy trigger only
+        // choice(name: 'Action', choices: ['Build', 'Deploy'], description: 'Choose Build or Deploy')
+        string(name: 'Nexus_Cred_ID', defaultValue: '', description: 'Jenkins Credentials ID for Nexus')
     }
 
     environment {
@@ -32,8 +35,8 @@ pipeline {
         stage('Initialize') {
             steps {
                 echo "🔧 Verifying tools"
-                bat 'mvn --version'
-                bat 'java -version'
+                sh 'mvn --version'
+                //sh 'java -version'
             }
         }
 
@@ -41,7 +44,6 @@ pipeline {
             steps {
                 script {
                     def isValid = false
-
                     if ((params.BRANCH_NAME == 'develop' || params.BRANCH_NAME.startsWith('develop')) && params.ENVIRONMENT == 'sit') {
                         isValid = true
                     } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) && params.ENVIRONMENT == 'dev') {
@@ -68,15 +70,15 @@ pipeline {
 
                     if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
                         mavenVersionCommand = """
-                            mvn build-helper:parse-version versions:set ^
-                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.nextMinorVersion}.0-${suffix} ^
+                            mvn build-helper:parse-version versions:set \\
+                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.nextMinorVersion}.0-${suffix} \\
                                 versions:commit
                         """
                         echo "📈 Feature/Develop branch: Bumping minor version (patch set to 0)"
                     } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
                         mavenVersionCommand = """
-                            mvn build-helper:parse-version versions:set ^
-                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-${suffix} ^
+                            mvn build-helper:parse-version versions:set \\
+                                -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-${suffix} \\
                                 versions:commit
                         """
                         echo "🔧 Hotfix/Bugfix branch: Bumping patch version"
@@ -84,7 +86,7 @@ pipeline {
                         error "❌ Unsupported branch type for versioning: ${params.BRANCH_NAME}"
                     }
 
-                    bat mavenVersionCommand
+                    sh mavenVersionCommand
 
                     def pom = readMavenPom file: 'pom.xml'
                     def finalVersion = pom.version
@@ -99,7 +101,39 @@ pipeline {
         stage('Build') {
             steps {
                 echo "🛠 Running Maven build"
-                bat 'mvn clean install -DskipTests=true'
+                sh 'mvn clean install -DskipTests=true'
+            }
+        }
+
+        stage('Deploy to Nexus') {
+            when {
+                expression { params.ENVIRONMENT == 'sit' } // Add: && params.Action == 'Deploy' if you use Action param
+            }
+            steps {
+                echo "🚀 Deploying to Nexus for environment: ${params.ENVIRONMENT}"
+                withCredentials([usernamePassword(
+                    credentialsId: params.Nexus_Cred_ID,
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh '''
+                        echo "Creating Maven settings.xml"
+                        cat > settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+  </servers>
+</settings>
+EOF
+
+                        echo "🔄 Running mvn deploy"
+                        mvn -s settings.xml deploy -DskipTests=true
+                    '''
+                }
             }
         }
     }
