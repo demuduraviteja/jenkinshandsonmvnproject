@@ -41,7 +41,7 @@ pipeline {
 
                     def valid = false
 
-                    if ((branch == 'master' || branch.startsWith('hotfix')) && env == 'prod') {
+                    if ((branch.startsWith('master') || branch.startsWith('hotfix')) && env == 'prod') {
                         valid = true
                     } else if ((branch.startsWith('develop') || branch.startsWith('feature') || branch.startsWith('bugfix')) && (env == 'dev' || env == 'sit')) {
                         valid = true
