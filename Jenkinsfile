@@ -1,146 +1,148 @@
+def FINAL_VERSION = '0'
+
 pipeline {
     agent any
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'JDK11'  // Uncomment if needed
+        //jdk   'java-11-openjdk'
     }
 
     parameters {
-        string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git', description: 'Git repository URL')
-        string(name: 'BRANCH_NAME', defaultValue: '', description: 'Git branch to build')
-        choice(name: 'ENVIRONMENT', choices: ['dev', 'sit'], description: 'Target environment')
-        string(name: 'Nexus_Cred_ID', defaultValue: '', description: 'Jenkins Credentials ID for Nexus')
+        string(name: 'BRANCH_NAME', defaultValue: 'develop', description: 'Git branch to build')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release type (for master/hotfix only)')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'sit', 'prod'], description: 'Target environment')
     }
 
     environment {
-        TIMESTAMP = "${new Date().format('yyyyMMdd.HHmmss')}"
+        GIT_REPO           = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
+        //GIT_CREDENTIALS_ID = 'ptrw833ghubc_tdbank'
+        TIMESTAMP          = "${new Date().format('yyyyMMdd.HHmmss')}"
     }
 
     stages {
 
-        stage('Checkout Code') {
+         stage('Checkout Code') {
             steps {
                 echo "📥 Checking out branch: ${params.BRANCH_NAME}"
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: "${params.BRANCH_NAME}"]],
-                    userRemoteConfigs: [[url: "${params.GIT_REPO_URL}"]]
+                    userRemoteConfigs: [[url: "${GIT_REPO}"]]
                 ])
-            }
-        }
-
-        stage('Initialize') {
-            steps {
-                echo "🔧 Verifying tools"
-                sh 'mvn --version'
-                // sh 'java -version' // Uncomment if needed
             }
         }
 
         stage('Validate Branch and Environment') {
             steps {
                 script {
-                    def isValid = false
-                    if ((params.BRANCH_NAME == 'develop' || params.BRANCH_NAME.startsWith('develop')) && params.ENVIRONMENT == 'sit') {
-                        isValid = true
-                    } else if ((params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) && params.ENVIRONMENT == 'dev') {
-                        isValid = true
+                    def branch = params.BRANCH_NAME
+                    def env = params.ENVIRONMENT
+
+                    def valid = false
+
+                    if ((branch == 'master' || branch.startsWith('hotfix')) && env == 'prod') {
+                        valid = true
+                    } else if ((branch.startsWith('develop') || branch.startsWith('feature') || branch.startsWith('bugfix')) && (env == 'dev' || env == 'sit')) {
+                        valid = true
                     }
 
-                    if (!isValid) {
-                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, Environment = ${params.ENVIRONMENT}"
+                    if (!valid) {
+                        error "❌ Invalid branch + environment combination: ${branch} + ${env}"
                     } else {
-                        echo "✅ Valid combination: ${params.BRANCH_NAME} → ${params.ENVIRONMENT}"
+                        echo "✅ Valid combination: ${branch} → ${env}"
                     }
                 }
             }
         }
 
-        stage('Auto-Increment Version') {
+        stage('Determine and Set Version') {
             steps {
                 script {
-                    def suffix = (params.ENVIRONMENT == 'sit') 
-                        ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
-                        : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
+                    if (params.BRANCH_NAME == 'master' || params.BRANCH_NAME.startsWith('hotfix')) {
+                        echo "📦 Releasing for Production"
 
-                    if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
-                        echo "📈 Feature/Develop branch: Bumping minor version (patch set to 0)"
-                        sh '''
-                            mvn build-helper:parse-version versions:set \
-                                -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.nextMinorVersion}.0-''' + suffix + ''' \
-                                versions:commit
-                        '''
-                    } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
-                        echo "🔧 Hotfix/Bugfix branch: Bumping patch version"
-                        sh '''
-                            mvn build-helper:parse-version versions:set \
-                                -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.minorVersion}.\\${parsedVersion.nextIncrementalVersion}-''' + suffix + ''' \
-                                versions:commit
-                        '''
+                        sh "git config user.name 'Jenkins CI'"
+                        sh "git config user.email 'jenkins@ci.com'"
+
+                        sh 'mvn build-helper:parse-version'
+
+                        def major = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def minor = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def patch = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout", returnStdout: true).trim()
+
+                        def releaseVersion = ""
+                        def nextSnapshot = ""
+
+                        if (params.RELEVER == 'major') {
+                            releaseVersion = "${major.toInteger() + 1}.0.0"
+                            nextSnapshot   = "${major.toInteger() + 1}.1.0-SNAPSHOT"
+                        } else if (params.RELEVER == 'minor') {
+                            releaseVersion = "${major}.${minor.toInteger() + 1}.0"
+                            nextSnapshot   = "${major}.${minor.toInteger() + 2}.0-SNAPSHOT"
+                        } else if (params.RELEVER == 'hotfix') {
+                            releaseVersion = "${major}.${minor}.${patch.toInteger() + 1}"
+                            nextSnapshot   = "${major}.${minor}.${patch.toInteger() + 2}-SNAPSHOT"
+                        }
+
+                        echo "🏷️ Release Version: ${releaseVersion}, Next Snapshot: ${nextSnapshot}"
+
+                        sh """
+                            mvn release:clean release:prepare release:perform \
+                              -B \
+                              -DreleaseVersion=${releaseVersion} \
+                              -DdevelopmentVersion=${nextSnapshot}
+                        """
+
+                        def pom = readMavenPom file: 'pom.xml'
+                        FINAL_VERSION = pom.version
+                        currentBuild.displayName = FINAL_VERSION
+
                     } else {
-                        error "❌ Unsupported branch type for versioning: ${params.BRANCH_NAME}"
+                        echo "📦 Dev/SIT auto-versioning using suffix"
+
+                        def suffix = (params.ENVIRONMENT == 'sit') 
+                            ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
+                            : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
+
+                        if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
+                            echo "📈 Bumping minor version (patch=0)"
+                            sh '''
+                                mvn build-helper:parse-version versions:set \
+                                    -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.nextMinorVersion}.0-''' + suffix + ''' \
+                                    versions:commit
+                            '''
+                        } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
+                            echo "🔧 Bumping patch version"
+                            sh '''
+                                mvn build-helper:parse-version versions:set \
+                                    -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.minorVersion}.\\${parsedVersion.nextIncrementalVersion}-''' + suffix + ''' \
+                                    versions:commit
+                            '''
+                        }
+
+                        def pom = readMavenPom file: 'pom.xml'
+                        FINAL_VERSION = pom.version
+                        currentBuild.displayName = FINAL_VERSION
                     }
-
-                    def pom = readMavenPom file: 'pom.xml'
-                    def finalVersion = pom.version
-                    echo "📦 Final Version set in pom.xml: ${finalVersion}"
-
-                    writeFile file: 'build_version.txt', text: finalVersion
-                    currentBuild.displayName = finalVersion
                 }
             }
         }
 
         stage('Build') {
             steps {
-                echo "🛠 Running Maven build"
+                echo "🛠️ Building with version: ${FINAL_VERSION}"
                 sh 'mvn clean install -DskipTests=true'
-            }
-        }
-
-        stage('Deploy to Nexus') {
-            when {
-                expression { params.ENVIRONMENT == 'sit' }
-            }
-            steps {
-                echo "🚀 Deploying to Nexus for environment: ${params.ENVIRONMENT}"
-                withCredentials([usernamePassword(
-                    credentialsId: params.Nexus_Cred_ID,
-                    usernameVariable: 'NEXUS_USER',
-                    passwordVariable: 'NEXUS_PASS'
-                )]) {
-                    sh '''
-                        echo "Creating Maven settings.xml"
-                        cat > settings.xml <<EOF
-<settings>
-  <servers>
-    <server>
-      <id>nexus-snapshots</id>
-      <username>${NEXUS_USER}</username>
-      <password>${NEXUS_PASS}</password>
-    </server>
-  </servers>
-</settings>
-EOF
-
-                        echo "🔄 Running mvn deploy"
-                        mvn -s settings.xml deploy -DskipTests=true
-                    '''
-                }
             }
         }
     }
 
     post {
         success {
-            script {
-                def builtVersion = fileExists('build_version.txt') ? readFile('build_version.txt').trim() : 'Unknown'
-                echo "✅ Build succeeded with version: ${builtVersion}"
-            }
+            echo "✅ Build completed with version: ${FINAL_VERSION}"
         }
         failure {
-            echo "❌ Pipeline failed. Check the logs for errors."
+            echo "❌ Build failed"
         }
     }
 }
