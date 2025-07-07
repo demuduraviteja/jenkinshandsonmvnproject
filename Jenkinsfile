@@ -68,11 +68,14 @@ pipeline {
                     if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
                         echo "📦 Releasing for Production"
 
-                        sh 'mvn build-helper:parse-version'
+                        def parsedOutput = sh(
+                            script: "mvn build-helper:parse-version",
+                            returnStdout: true
+                        )
 
-                        def major = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
-                        def minor = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
-                        def patch = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout", returnStdout: true).trim()
+                        def major = (parsedOutput =~ /parsedVersion\.majorVersion=(\d+)/)[0][1]
+                        def minor = (parsedOutput =~ /parsedVersion\.minorVersion=(\d+)/)[0][1]
+                        def patch = (parsedOutput =~ /parsedVersion\.incrementalVersion=(\d+)/)[0][1]
 
                         def releaseVersion = ""
                         def nextSnapshot = ""
