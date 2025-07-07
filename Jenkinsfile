@@ -68,27 +68,24 @@ pipeline {
                     if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
                         echo "📦 Releasing for Production"
 
-                        def parsedOutput = sh(
-                            script: "mvn build-helper:parse-version",
-                            returnStdout: true
-                        )
+                        sh 'mvn build-helper:parse-version'
 
-                        def major = (parsedOutput =~ /parsedVersion\.majorVersion=(\d+)/)[0][1]
-                        def minor = (parsedOutput =~ /parsedVersion\.minorVersion=(\d+)/)[0][1]
-                        def patch = (parsedOutput =~ /parsedVersion\.incrementalVersion=(\d+)/)[0][1]
+                        def major = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def minor = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def patch = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout", returnStdout: true).trim()
 
                         def releaseVersion = ""
                         def nextSnapshot = ""
 
                         if (params.RELEVER == 'major') {
                             releaseVersion = "${major.toInteger() + 1}.0.0"
-                            nextSnapshot   = "${major.toInteger() + 1}.1.0-SNAPSHOT"
+                            nextSnapshot   = "${major.toInteger() + 1}.0.0-SNAPSHOT"
                         } else if (params.RELEVER == 'minor') {
                             releaseVersion = "${major}.${minor.toInteger() + 1}.0"
-                            nextSnapshot   = "${major}.${minor.toInteger() + 2}.0-SNAPSHOT"
+                            nextSnapshot   = "${major}.${minor.toInteger() + 1}.0-SNAPSHOT"
                         } else if (params.RELEVER == 'hotfix') {
                             releaseVersion = "${major}.${minor}.${patch.toInteger() + 1}"
-                            nextSnapshot   = "${major}.${minor}.${patch.toInteger() + 2}-SNAPSHOT"
+                            nextSnapshot   = "${major}.${minor}.${patch.toInteger() + 1}-SNAPSHOT"
                         }
 
                         echo "🏷️ Release Version: ${releaseVersion}, Next Snapshot: ${nextSnapshot}"
