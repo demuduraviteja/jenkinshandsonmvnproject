@@ -59,7 +59,7 @@ pipeline {
         stage('Determine and Set Version') {
             steps {
                 script {
-                    if (params.BRANCH_NAME == 'master' || params.BRANCH_NAME.startsWith('hotfix')) {
+                    if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
                         echo "📦 Releasing for Production"
 
                         sh "git config user.name 'Jenkins CI'"
