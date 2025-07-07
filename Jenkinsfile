@@ -5,42 +5,46 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
+        // jdk 'java-11-openjdk'  // Uncomment if needed
     }
 
     parameters {
         string(name: 'BRANCH_NAME', defaultValue: 'develop', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release type (for prod only)')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release type (only for master/hotfix)')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'sit', 'prod'], description: 'Target environment')
     }
 
     environment {
-        GIT_REPO  = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
+        GIT_REPO = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
         TIMESTAMP = "${new Date().format('yyyyMMdd.HHmmss')}"
     }
 
     stages {
 
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
         stage('Checkout Code') {
             steps {
                 echo "📥 Checking out branch: ${params.BRANCH_NAME}"
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "${params.BRANCH_NAME}"]],
-                    userRemoteConfigs: [[url: "${GIT_REPO}"]]
-                ])
+                git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}"
             }
         }
 
         stage('Validate Branch and Environment') {
             steps {
                 script {
+                    def valid = false
                     def branch = params.BRANCH_NAME
                     def env = params.ENVIRONMENT
 
-                    def valid = false
                     if ((branch.startsWith('master') || branch.startsWith('hotfix')) && env == 'prod') {
                         valid = true
-                    } else if ((branch.startsWith('develop') || branch.startsWith('feature') || branch.startsWith('bugfix')) && (env == 'dev' || env == 'sit')) {
+                    } else if ((branch.startsWith('develop') || branch.startsWith('feature') || branch.startsWith('bugfix')) &&
+                               (env == 'dev' || env == 'sit')) {
                         valid = true
                     }
 
@@ -56,18 +60,22 @@ pipeline {
         stage('Determine and Set Version') {
             steps {
                 script {
-                    def pom = readMavenPom file: 'pom.xml'
-                    def baseVersion = pom.version.tokenize('-')[0] // remove "-SNAPSHOT" etc.
-                    def (major, minor, patch) = baseVersion.tokenize('.')
+                    sh '''
+                        git config --global user.name "demuduraviteja"
+                        git config --global user.email "shanmukha2342@gmail.com"
+                    '''
 
                     if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
                         echo "📦 Releasing for Production"
 
-                        sh "git config user.name 'Jenkins CI'"
-                        sh "git config user.email 'jenkins@ci.com'"
+                        sh 'mvn build-helper:parse-version'
+
+                        def major = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def minor = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def patch = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout", returnStdout: true).trim()
 
                         def releaseVersion = ""
-                        def nextSnapshot   = ""
+                        def nextSnapshot = ""
 
                         if (params.RELEVER == 'major') {
                             releaseVersion = "${major.toInteger() + 1}.0.0"
@@ -83,39 +91,41 @@ pipeline {
                         echo "🏷️ Release Version: ${releaseVersion}, Next Snapshot: ${nextSnapshot}"
 
                         sh """
-                            mvn release:clean release:prepare release:perform -B \
-                                -DreleaseVersion=${releaseVersion} \
-                                -DdevelopmentVersion=${nextSnapshot}
+                            mvn release:clean release:prepare release:perform \
+                              -B \
+                              -DreleaseVersion=${releaseVersion} \
+                              -DdevelopmentVersion=${nextSnapshot}
                         """
 
-                        FINAL_VERSION = releaseVersion
+                        def pom = readMavenPom file: 'pom.xml'
+                        FINAL_VERSION = pom.version
                         currentBuild.displayName = FINAL_VERSION
 
                     } else {
-                        echo "📦 Auto-versioning for Lower Environments"
+                        echo "📦 Dev/SIT auto-versioning using suffix"
 
                         def suffix = (params.ENVIRONMENT == 'sit') 
                             ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
                             : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
 
                         if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
-                            echo "📈 Bumping minor version (patch=0)"
+                            echo "📈 Bumping minor version"
                             sh """
                                 mvn build-helper:parse-version versions:set \
-                                    -DnewVersion=${major}.${minor.toInteger() + 1}.0-${suffix} \
+                                    -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.nextMinorVersion}.0-${suffix} \
                                     versions:commit
                             """
                         } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
                             echo "🔧 Bumping patch version"
                             sh """
                                 mvn build-helper:parse-version versions:set \
-                                    -DnewVersion=${major}.${minor}.${patch.toInteger() + 1}-${suffix} \
+                                    -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.minorVersion}.\\\${parsedVersion.nextIncrementalVersion}-${suffix} \
                                     versions:commit
                             """
                         }
 
-                        def pomAfter = readMavenPom file: 'pom.xml'
-                        FINAL_VERSION = pomAfter.version
+                        def pom = readMavenPom file: 'pom.xml'
+                        FINAL_VERSION = pom.version
                         currentBuild.displayName = FINAL_VERSION
                     }
                 }
@@ -124,7 +134,7 @@ pipeline {
 
         stage('Build') {
             steps {
-                echo "🛠️ Building version: ${FINAL_VERSION}"
+                echo "🛠️ Building with version: ${FINAL_VERSION}"
                 sh 'mvn clean install -DskipTests=true'
             }
         }
@@ -132,7 +142,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Build completed with version: ${FINAL_VERSION}"
+            echo "✅ Build completed successfully with version: ${FINAL_VERSION}"
         }
         failure {
             echo "❌ Build failed"
