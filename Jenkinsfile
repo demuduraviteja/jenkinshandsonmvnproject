@@ -5,7 +5,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'  // Uncomment if needed
+        // jdk 'java-11-openjdk'
     }
 
     parameters {
@@ -68,38 +68,45 @@ pipeline {
                     if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
                         echo "📦 Releasing for Production"
 
-                        sh '''
-                            mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout > major.txt
-                            mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout > minor.txt
-                            mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout > patch.txt
-                        '''
+                        withCredentials([string(credentialsId: 'GITHUB_PAT', variable: 'GIT_TOKEN')]) {
+                            // Replace remote with token-based auth (for push access)
+                            sh """
+                                git remote set-url origin https://${GIT_TOKEN}@github.com/demuduraviteja/jenkinshandsonmvnproject.git
+                            """
 
-                        def major = readFile('major.txt').trim()
-                        def minor = readFile('minor.txt').trim()
-                        def patch = readFile('patch.txt').trim()
+                            sh '''
+                                mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout > major.txt
+                                mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout > minor.txt
+                                mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout > patch.txt
+                            '''
 
-                        def releaseVersion = ""
-                        def nextSnapshot = ""
+                            def major = readFile('major.txt').trim()
+                            def minor = readFile('minor.txt').trim()
+                            def patch = readFile('patch.txt').trim()
 
-                        if (params.RELEVER == 'major') {
-                            releaseVersion = "${major.toInteger() + 1}.0.0"
-                            nextSnapshot   = "${major.toInteger() + 1}.0.0-SNAPSHOT"
-                        } else if (params.RELEVER == 'minor') {
-                            releaseVersion = "${major}.${minor.toInteger() + 1}.0"
-                            nextSnapshot   = "${major}.${minor.toInteger() + 1}.0-SNAPSHOT"
-                        } else if (params.RELEVER == 'hotfix') {
-                            releaseVersion = "${major}.${minor}.${patch.toInteger() + 1}"
-                            nextSnapshot   = "${major}.${minor}.${patch.toInteger() + 1}-SNAPSHOT"
+                            def releaseVersion = ""
+                            def nextSnapshot = ""
+
+                            if (params.RELEVER == 'major') {
+                                releaseVersion = "${major.toInteger() + 1}.0.0"
+                                nextSnapshot   = "${major.toInteger() + 1}.0.0-SNAPSHOT"
+                            } else if (params.RELEVER == 'minor') {
+                                releaseVersion = "${major}.${minor.toInteger() + 1}.0"
+                                nextSnapshot   = "${major}.${minor.toInteger() + 1}.0-SNAPSHOT"
+                            } else if (params.RELEVER == 'hotfix') {
+                                releaseVersion = "${major}.${minor}.${patch.toInteger() + 1}"
+                                nextSnapshot   = "${major}.${minor}.${patch.toInteger() + 1}-SNAPSHOT"
+                            }
+
+                            echo "🏷️ Release Version: ${releaseVersion}, Next Snapshot: ${nextSnapshot}"
+
+                            sh """
+                                mvn release:clean release:prepare release:perform \
+                                  -B \
+                                  -DreleaseVersion=${releaseVersion} \
+                                  -DdevelopmentVersion=${nextSnapshot}
+                            """
                         }
-
-                        echo "🏷️ Release Version: ${releaseVersion}, Next Snapshot: ${nextSnapshot}"
-
-                        sh """
-                            mvn release:clean release:prepare release:perform \
-                              -B \
-                              -DreleaseVersion=${releaseVersion} \
-                              -DdevelopmentVersion=${nextSnapshot}
-                        """
 
                         def pom = readMavenPom file: 'pom.xml'
                         FINAL_VERSION = pom.version
