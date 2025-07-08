@@ -5,7 +5,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'
+        jdk 'java-11-openjdk'
     }
 
     parameters {
@@ -20,7 +20,6 @@ pipeline {
     }
 
     stages {
-
         stage('Clean Workspace') {
             steps {
                 cleanWs()
@@ -59,20 +58,20 @@ pipeline {
 
         stage('Determine and Set Version') {
             steps {
-                script {
-                    sh '''
-                        git config --global user.name "demuduraviteja"
-                        git config --global user.email "shanmukha2342@gmail.com"
-                    '''
+                withCredentials([usernamePassword(credentialsId: 'github-pat', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PAT')]) {
+                    script {
+                        sh '''
+                            git config --global user.name "demuduraviteja"
+                            git config --global user.email "shanmukha2342@gmail.com"
+                        '''
 
-                    if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
-                        echo "📦 Releasing for Production"
+                        // Set Git remote URL with credentials to allow push during Maven release
+                        sh '''
+                            git remote set-url origin https://${GIT_USER}:${GIT_PAT}@github.com/demuduraviteja/jenkinshandsonmvnproject.git
+                        '''
 
-                        withCredentials([string(credentialsId: 'GITHUB_PAT', variable: 'GIT_TOKEN')]) {
-                            // Replace remote with token-based auth (for push access)
-                            sh """
-                                git remote set-url origin https://${GIT_TOKEN}@github.com/demuduraviteja/jenkinshandsonmvnproject.git
-                            """
+                        if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
+                            echo "📦 Releasing for Production"
 
                             sh '''
                                 mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout > major.txt
@@ -106,38 +105,38 @@ pipeline {
                                   -DreleaseVersion=${releaseVersion} \
                                   -DdevelopmentVersion=${nextSnapshot}
                             """
+
+                            def pom = readMavenPom file: 'pom.xml'
+                            FINAL_VERSION = pom.version
+                            currentBuild.displayName = FINAL_VERSION
+
+                        } else {
+                            echo "📦 Dev/SIT auto-versioning using suffix"
+
+                            def suffix = (params.ENVIRONMENT == 'sit') 
+                                ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
+                                : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
+
+                            if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
+                                echo "📈 Bumping minor version"
+                                sh """
+                                    mvn build-helper:parse-version versions:set \
+                                        -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.nextMinorVersion}.0-${suffix} \
+                                        versions:commit
+                                """
+                            } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
+                                echo "🔧 Bumping patch version"
+                                sh """
+                                    mvn build-helper:parse-version versions:set \
+                                        -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.minorVersion}.\\\${parsedVersion.nextIncrementalVersion}-${suffix} \
+                                        versions:commit
+                                """
+                            }
+
+                            def pom = readMavenPom file: 'pom.xml'
+                            FINAL_VERSION = pom.version
+                            currentBuild.displayName = FINAL_VERSION
                         }
-
-                        def pom = readMavenPom file: 'pom.xml'
-                        FINAL_VERSION = pom.version
-                        currentBuild.displayName = FINAL_VERSION
-
-                    } else {
-                        echo "📦 Dev/SIT auto-versioning using suffix"
-
-                        def suffix = (params.ENVIRONMENT == 'sit') 
-                            ? "SNAPSHOT-${env.BUILD_NUMBER}-${env.TIMESTAMP}" 
-                            : "SNAPSHOT-dev-${env.BUILD_NUMBER}-${env.TIMESTAMP}"
-
-                        if (params.BRANCH_NAME.startsWith('feature') || params.BRANCH_NAME.startsWith('develop')) {
-                            echo "📈 Bumping minor version"
-                            sh """
-                                mvn build-helper:parse-version versions:set \
-                                    -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.nextMinorVersion}.0-${suffix} \
-                                    versions:commit
-                            """
-                        } else if (params.BRANCH_NAME.startsWith('hotfix') || params.BRANCH_NAME.startsWith('bugfix')) {
-                            echo "🔧 Bumping patch version"
-                            sh """
-                                mvn build-helper:parse-version versions:set \
-                                    -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.minorVersion}.\\\${parsedVersion.nextIncrementalVersion}-${suffix} \
-                                    versions:commit
-                            """
-                        }
-
-                        def pom = readMavenPom file: 'pom.xml'
-                        FINAL_VERSION = pom.version
-                        currentBuild.displayName = FINAL_VERSION
                     }
                 }
             }
