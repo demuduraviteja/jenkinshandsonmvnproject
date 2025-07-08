@@ -118,9 +118,9 @@
     </pluginManagement>
   </build>
   <scm>
-  <connection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</connection>
-  <developerConnection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</developerConnection>
-  <url>https://github.com/demuduraviteja/jenkinshandsonmvnproject</url>
-  <tag>HEAD</tag>
-</scm>
+    <connection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</connection>
+    <developerConnection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</developerConnection>
+    <url>https://github.com/demuduraviteja/jenkinshandsonmvnproject</url>
+    <tag>HEAD</tag>
+  </scm>
 </project>
