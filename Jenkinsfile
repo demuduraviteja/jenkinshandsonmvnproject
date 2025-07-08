@@ -5,7 +5,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk'
     }
 
     parameters {
