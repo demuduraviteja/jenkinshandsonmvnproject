@@ -8,18 +8,22 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk' // Uncomment if you configure JDK
+        //jdk 'java-11-openjdk'
     }
 
     parameters {
         string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level: major, minor, hotfix')
     }
 
     environment {
-        TIMESTAMP          = "${new Date().format('yyyyMMdd.HHmmss')}"
-        GIT_REPO           = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
-        GIT_CREDENTIALS_ID = 'github-PAT'
+        TIMESTAMP            = "${new Date().format('yyyyMMdd.HHmmss')}"
+        GIT_REPO             = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
+        //NEXUS_REPO           = 'https://repo.td.com/repository/eets-staging-authenticated'
+        //GROUP_ID             = 'TBSW/LAMP'
+        //ARTIFACT_ID          = 'slr-platform'
+        GIT_CREDENTIALS_ID   = 'github-PAT'
+        //NEXUS_CREDENTIALS_ID = 'lamp_nexus'
     }
 
     stages {
@@ -29,14 +33,11 @@ pipeline {
             }
         }
 
-        stage('Initialize Tools') {
+        stage('Initialize') {
             steps {
-                script {
-                    def mvnHome = tool name: 'maven-3.9.6'
-                    env.MAVEN_HOME = mvnHome
-                    env.PATH = "${mvnHome}/bin:${env.PATH}"
-                    sh "${mvnHome}/bin/mvn --version"
-                }
+                echo "🔍 Verifying tools"
+                sh 'mvn --version'
+                sh 'java -version'
             }
         }
 
@@ -57,7 +58,13 @@ pipeline {
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
                         sh "rm -f ${file}"
-                        sh "${env.MAVEN_HOME}/bin/mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+
+                        // Step 1: Run parse-version plugin
+                        sh "mvn build-helper:parse-version"
+
+                        // Step 2: Extract the parsed version component
+                        sh "mvn help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+
                         def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
                         if (!lines) {
                             error "❌ Failed to extract property: ${propName}"
@@ -80,7 +87,7 @@ pipeline {
                     }
 
                     SNAPSHOT_VERSION = "${RELEASE_VERSION}-SNAPSHOT"
-                    echo "🏷️ Computed RELEASE_VERSION=${RELEASE_VERSION}, SNAPSHOT_VERSION=${SNAPSHOT_VERSION}"
+                    echo "📊 Computed RELEASE_VERSION=${RELEASE_VERSION}, SNAPSHOT_VERSION=${SNAPSHOT_VERSION}"
                 }
             }
         }
@@ -89,10 +96,10 @@ pipeline {
             steps {
                 script {
                     sh """
-                        ${env.MAVEN_HOME}/bin/mvn release:clean release:prepare release:perform -B \\
-                        -DreleaseVersion=${RELEASE_VERSION} \\
-                        -DdevelopmentVersion=${SNAPSHOT_VERSION} \\
-                        -Dtag=release-${RELEASE_VERSION}
+                        mvn release:clean release:prepare release:perform -B \\
+                            -DreleaseVersion=${RELEASE_VERSION} \\
+                            -DdevelopmentVersion=${SNAPSHOT_VERSION} \\
+                            -Dtag=release-${RELEASE_VERSION}
                     """
                 }
             }
@@ -111,7 +118,6 @@ pipeline {
                         def content = readFile(filePath)
                         lines = content.readLines().collect { it.trim() }.findAll { it }
                     }
-
                     lines << entry
                     lines = lines.unique().takeRight(2)
                     writeFile file: filePath, text: lines.join('\n')
@@ -125,7 +131,7 @@ pipeline {
         stage('Build & Package') {
             steps {
                 script {
-                    sh "${env.MAVEN_HOME}/bin/mvn clean install -DskipTests=true"
+                    sh "mvn clean install -DskipTests=true"
                 }
             }
         }
