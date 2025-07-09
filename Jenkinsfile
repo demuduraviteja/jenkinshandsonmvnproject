@@ -8,12 +8,12 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk' // Uncomment if JDK setup is needed
+        // jdk 'java-11-openjdk' // Uncomment if JDK needed
     }
 
     parameters {
-        string(name: 'BRANCH_NAME', defaultValue: 'master_test', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level (major/minor/hotfix)')
+        string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
     }
 
     environment {
@@ -23,7 +23,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout Code') {
             steps {
                 git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}", credentialsId: "${GIT_CREDENTIALS_ID}"
@@ -32,9 +31,10 @@ pipeline {
 
         stage('Initialize Tools') {
             steps {
-                echo "🔧 Checking tool versions"
-                bat 'mvn --version'
-                // bat 'java -version'
+                script {
+                    def mvnHome = tool name: 'maven-3.9.6'
+                    bat "\"${mvnHome}\\bin\\mvn\" --version"
+                }
             }
         }
 
@@ -52,10 +52,13 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
+                    def mvnHome = tool name: 'maven-3.9.6'
+                    def mvnCmd = "\"${mvnHome}\\bin\\mvn\""
+
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
                         bat "del ${file} >nul 2>&1"
-                        bat "mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        bat "${mvnCmd} build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
                         def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
                         if (!lines) {
                             error "❌ Failed to extract property: ${propName}"
@@ -66,12 +69,10 @@ pipeline {
                     if (params.RELEVER == 'major') {
                         def nextMajor = extractProp('parsedVersion.nextMajorVersion')
                         RELEASE_VERSION = "${nextMajor}.0.0"
-
                     } else if (params.RELEVER == 'minor') {
                         def major = extractProp('parsedVersion.majorVersion')
                         def nextMinor = extractProp('parsedVersion.nextMinorVersion')
                         RELEASE_VERSION = "${major}.${nextMinor}.0"
-
                     } else if (params.RELEVER == 'hotfix') {
                         def major = extractProp('parsedVersion.majorVersion')
                         def minor = extractProp('parsedVersion.minorVersion')
@@ -88,8 +89,10 @@ pipeline {
         stage('Maven Release') {
             steps {
                 script {
+                    def mvnHome = tool name: 'maven-3.9.6'
+                    def mvnCmd = "\"${mvnHome}\\bin\\mvn\""
                     bat """
-                        mvn release:clean release:prepare release:perform -B ^
+                        ${mvnCmd} release:clean release:prepare release:perform -B ^
                         -DreleaseVersion=${RELEASE_VERSION} ^
                         -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
                         -Dtag=release-${RELEASE_VERSION}
@@ -124,8 +127,11 @@ pipeline {
 
         stage('Build & Package') {
             steps {
-                echo "🛠️ Running Maven build"
-                bat "mvn clean install -DskipTests=true"
+                script {
+                    def mvnHome = tool name: 'maven-3.9.6'
+                    def mvnCmd = "\"${mvnHome}\\bin\\mvn\""
+                    bat "${mvnCmd} clean install -DskipTests=true"
+                }
             }
         }
     }
