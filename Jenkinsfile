@@ -8,12 +8,12 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'  // Uncomment if configured
+        // jdk 'java-11-openjdk' // Uncomment if JDK setup is needed
     }
 
     parameters {
-        string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
+        string(name: 'BRANCH_NAME', defaultValue: 'master_test', description: 'Git branch to build')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level (major/minor/hotfix)')
     }
 
     environment {
@@ -52,31 +52,30 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
-                    bat 'mvn build-helper:parse-version'
-
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
                         bat "del ${file} >nul 2>&1"
-                        bat "mvn help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
-                        return readFile(file).readLines().find { it.trim() && !it.contains("Downloading") && !it.contains("WARNING") }?.trim()
+                        bat "mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
+                        if (!lines) {
+                            error "❌ Failed to extract property: ${propName}"
+                        }
+                        return lines[0].trim()
                     }
 
                     if (params.RELEVER == 'major') {
                         def nextMajor = extractProp('parsedVersion.nextMajorVersion')
-                        if (!nextMajor) error "❌ Failed to extract nextMajorVersion"
                         RELEASE_VERSION = "${nextMajor}.0.0"
 
                     } else if (params.RELEVER == 'minor') {
                         def major = extractProp('parsedVersion.majorVersion')
                         def nextMinor = extractProp('parsedVersion.nextMinorVersion')
-                        if (!major || !nextMinor) error "❌ Failed to extract minor version info"
                         RELEASE_VERSION = "${major}.${nextMinor}.0"
 
                     } else if (params.RELEVER == 'hotfix') {
                         def major = extractProp('parsedVersion.majorVersion')
                         def minor = extractProp('parsedVersion.minorVersion')
                         def patch = extractProp('parsedVersion.nextIncrementalVersion')
-                        if (!major || !minor || !patch) error "❌ Failed to extract hotfix version info"
                         RELEASE_VERSION = "${major}.${minor}.${patch}"
                     }
 
@@ -109,7 +108,8 @@ pipeline {
 
                     def lines = []
                     if (fileExists(filePath)) {
-                        lines = readFile(filePath).split('\n').collect { it.trim() }.findAll { it }
+                        def content = readFile(filePath)
+                        lines = content.readLines().collect { it.trim() }.findAll { it }
                     }
 
                     lines << entry
