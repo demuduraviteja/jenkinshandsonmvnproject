@@ -8,7 +8,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk'  // Uncomment if you configure Java
     }
 
     parameters {
@@ -38,7 +38,7 @@ pipeline {
             steps {
                 echo "🔧 Checking tool versions"
                 bat 'mvn --version'
-                //bat 'java -version'
+                // bat 'java -version'
             }
         }
 
@@ -57,12 +57,15 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
-                    // Run build-helper plugin to make parsedVersion available
                     bat 'mvn build-helper:parse-version'
 
                     def getMavenProperty = { prop ->
-                        def output = bat(script: "mvn help:evaluate -Dexpression=${prop} -q -DforceStdout", returnStdout: true)
-                        return output.readLines().find { it && !it.contains("WARNING") && !it.contains("Downloading") }.trim()
+                        def file = "output_${prop}.txt"
+                        bat """
+                            del ${file} >nul 2>&1
+                            mvn help:evaluate -Dexpression=${prop} -q -DforceStdout > ${file}
+                        """
+                        return readFile(file).readLines().find { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }.trim()
                     }
 
                     if (params.RELEVER == 'major') {
@@ -92,9 +95,9 @@ pipeline {
                 script {
                     bat """
                         mvn release:clean release:prepare release:perform -B ^
-                          -DreleaseVersion=${RELEASE_VERSION} ^
-                          -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
-                          -Dtag=release-${RELEASE_VERSION}
+                            -DreleaseVersion=${RELEASE_VERSION} ^
+                            -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
+                            -Dtag=release-${RELEASE_VERSION}
                     """
                 }
             }
