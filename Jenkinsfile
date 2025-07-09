@@ -60,17 +60,22 @@ pipeline {
                     // Run build-helper plugin to make parsedVersion available
                     bat 'mvn build-helper:parse-version'
 
+                    def getMavenProperty = { prop ->
+                        def output = bat(script: "mvn help:evaluate -Dexpression=${prop} -q -DforceStdout", returnStdout: true)
+                        return output.readLines().find { it && !it.contains("WARNING") && !it.contains("Downloading") }.trim()
+                    }
+
                     if (params.RELEVER == 'major') {
-                        def nextMajor = bat(script: "mvn help:evaluate -Dexpression=parsedVersion.nextMajorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def nextMajor = getMavenProperty("parsedVersion.nextMajorVersion")
                         RELEASE_VERSION = "${nextMajor}.0.0"
                     } else if (params.RELEVER == 'minor') {
-                        def major = bat(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
-                        def nextMinor = bat(script: "mvn help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout", returnStdout: true).trim()
+                        def major = getMavenProperty("parsedVersion.majorVersion")
+                        def nextMinor = getMavenProperty("parsedVersion.nextMinorVersion")
                         RELEASE_VERSION = "${major}.${nextMinor}.0"
                     } else if (params.RELEVER == 'hotfix') {
-                        def major = bat(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
-                        def minor = bat(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
-                        def nextPatch = bat(script: "mvn help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout", returnStdout: true).trim()
+                        def major = getMavenProperty("parsedVersion.majorVersion")
+                        def minor = getMavenProperty("parsedVersion.minorVersion")
+                        def nextPatch = getMavenProperty("parsedVersion.nextIncrementalVersion")
                         RELEASE_VERSION = "${major}.${minor}.${nextPatch}"
                     } else {
                         error "❌ Invalid RELEVER: ${params.RELEVER}"
