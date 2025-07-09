@@ -65,7 +65,7 @@ pipeline {
 
         stage('Determine Release Version') {
             when {
-                expression { params.BRANCH_NAME == 'master' && params.RELEVER == 'major' }
+                expression { params.BRANCH_NAME.startsWith('master') && params.RELEVER == 'major' }
             }
             steps {
                 script {
@@ -86,7 +86,7 @@ pipeline {
 
         stage('Release Master with Tag') {
             when {
-                expression { params.BRANCH_NAME == 'master' && params.RELEVER == 'major' }
+                expression { params.BRANCH_NAME.startsWith('master') && params.RELEVER == 'major' }
             }
             steps {
                 script {
