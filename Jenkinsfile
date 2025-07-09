@@ -8,7 +8,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk' // Enable if needed
+        // jdk 'java-11-openjdk' // Uncomment if you configure JDK
     }
 
     parameters {
@@ -34,8 +34,8 @@ pipeline {
                 script {
                     def mvnHome = tool name: 'maven-3.9.6'
                     env.MAVEN_HOME = mvnHome
-                    env.PATH = "${mvnHome}\\bin;${env.PATH}"
-                    bat "\"${mvnHome}\\bin\\mvn.cmd\" --version"
+                    env.PATH = "${mvnHome}/bin:${env.PATH}"
+                    sh "${mvnHome}/bin/mvn --version"
                 }
             }
         }
@@ -56,8 +56,8 @@ pipeline {
                 script {
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
-                        bat "del ${file} >nul 2>&1"
-                        bat "\"${env.MAVEN_HOME}\\bin\\mvn.cmd\" build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        sh "rm -f ${file}"
+                        sh "${env.MAVEN_HOME}/bin/mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
                         def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
                         if (!lines) {
                             error "❌ Failed to extract property: ${propName}"
@@ -88,10 +88,10 @@ pipeline {
         stage('Maven Release') {
             steps {
                 script {
-                    bat """
-                        "${env.MAVEN_HOME}\\bin\\mvn.cmd" release:clean release:prepare release:perform -B ^
-                        -DreleaseVersion=${RELEASE_VERSION} ^
-                        -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
+                    sh """
+                        ${env.MAVEN_HOME}/bin/mvn release:clean release:prepare release:perform -B \\
+                        -DreleaseVersion=${RELEASE_VERSION} \\
+                        -DdevelopmentVersion=${SNAPSHOT_VERSION} \\
                         -Dtag=release-${RELEASE_VERSION}
                     """
                 }
@@ -125,7 +125,7 @@ pipeline {
         stage('Build & Package') {
             steps {
                 script {
-                    bat "\"${env.MAVEN_HOME}\\bin\\mvn.cmd\" clean install -DskipTests=true"
+                    sh "${env.MAVEN_HOME}/bin/mvn clean install -DskipTests=true"
                 }
             }
         }
