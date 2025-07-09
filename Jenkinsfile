@@ -8,7 +8,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk'  // Uncomment if configured
     }
 
     parameters {
@@ -23,6 +23,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
                 git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}", credentialsId: "${GIT_CREDENTIALS_ID}"
@@ -33,6 +34,7 @@ pipeline {
             steps {
                 echo "🔧 Checking tool versions"
                 bat 'mvn --version'
+                // bat 'java -version'
             }
         }
 
@@ -107,7 +109,7 @@ pipeline {
 
                     def lines = []
                     if (fileExists(filePath)) {
-                        lines = readFile(filePath).split('\n')*.trim().findAll()
+                        lines = readFile(filePath).split('\n').collect { it.trim() }.findAll { it }
                     }
 
                     lines << entry
