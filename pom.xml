@@ -1,126 +1,148 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
+def FINAL_VERSION = '0'
+def RELEASE_VERSION = ''
+def SNAPSHOT_VERSION = ''
+def ENVIRONMENT = 'PROD'
 
-  <groupId>org.ravi.devops</groupId>
-  <artifactId>MavenSampleApp</artifactId>
-  <version>2.0.0-SNAPSHOT</version>
+pipeline {
+    agent any
 
-  <name>MavenSampleApp</name>
-  <!-- FIXME change it to the project's website -->
-  <url>http://www.example.com</url>
+    tools {
+        maven 'maven-3.9.6'
+        // jdk 'java-11-openjdk'
+    }
 
-  <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>17</maven.compiler.release>
-  </properties>
+    parameters {
+        string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
+    }
 
-  <dependencyManagement>
-    <dependencies>
-      <dependency>
-        <groupId>org.junit</groupId>
-        <artifactId>junit-bom</artifactId>
-        <version>5.11.0</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
+    environment {
+        TIMESTAMP          = "${new Date().format('yyyyMMdd.HHmmss')}"
+        GIT_REPO           = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
+        GIT_CREDENTIALS_ID = 'github-PAT'
+    }
 
-  <dependencies>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-api</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <!-- Optionally: parameterized tests support -->
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-params</artifactId>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}", credentialsId: "${GIT_CREDENTIALS_ID}"
+            }
+        }
 
-  <build>
-    <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
-      <plugins>
-        <!-- clean lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#clean_Lifecycle -->
-        <plugin>
-          <artifactId>maven-clean-plugin</artifactId>
-          <version>3.4.0</version>
-        </plugin>
-        <!-- default lifecycle, jar packaging: see https://maven.apache.org/ref/current/maven-core/default-bindings.html#Plugin_bindings_for_jar_packaging -->
-        <plugin>
-          <artifactId>maven-resources-plugin</artifactId>
-          <version>3.3.1</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.13.0</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.3.0</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-jar-plugin</artifactId>
-          <version>3.4.2</version>
-          <configuration>
-            <archive>
-              <manifest>
-               <mainClass>org.ravi.devops.App</mainClass>
-              </manifest>
-            </archive>
-          </configuration>
-        </plugin>
-        <plugin>
-          <artifactId>maven-install-plugin</artifactId>
-          <version>3.1.2</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-deploy-plugin</artifactId>
-          <version>3.1.2</version>
-        </plugin>
-        <!-- site lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#site_Lifecycle -->
-        <plugin>
-          <artifactId>maven-site-plugin</artifactId>
-          <version>3.12.1</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-project-info-reports-plugin</artifactId>
-          <version>3.6.1</version>
-        </plugin>
-        <plugin>
-          <groupId>org.codehaus.mojo</groupId>
-          <artifactId>build-helper-maven-plugin</artifactId>
-          <version>3.4.0</version> <!-- or latest -->
-          <executions>
-            <execution>
-              <goals>
-                <goal>parse-version</goal>
-              </goals>
-            </execution>
-          </executions>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-release-plugin</artifactId>
-          <version>3.1.1</version>
-          <configuration>
-            <tagNameFormat>@{project.version}</tagNameFormat>
-            <scmCommentPrefix>[RELEASE]</scmCommentPrefix>
-            <autoVersionSubmodules>true</autoVersionSubmodules>
-            <updateWorkingCopyVersions>true</updateWorkingCopyVersions>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
-  </build>
-  <scm>
-    <connection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</connection>
-    <developerConnection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</developerConnection>
-    <url>https://github.com/demuduraviteja/jenkinshandsonmvnproject</url>
-    <tag>HEAD</tag>
-  </scm>
-</project>
+        stage('Initialize Tools') {
+            steps {
+                script {
+                    def mvnHome = tool name: 'maven-3.9.6'
+                    env.MAVEN_HOME = mvnHome
+                    env.PATH = "${mvnHome}\\bin;${env.PATH}"
+                    bat "\"${mvnHome}\\bin\\mvn\" --version"
+                }
+            }
+        }
+
+        stage('Validate Branch and Environment') {
+            steps {
+                script {
+                    if (!(params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) || ENVIRONMENT != 'PROD') {
+                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, ENV = ${ENVIRONMENT}"
+                    }
+                    echo "✅ Valid branch and environment"
+                }
+            }
+        }
+
+        stage('Parse Version and Determine Release') {
+            steps {
+                script {
+                    def extractProp = { propName ->
+                        def file = "tmp_${propName}.txt"
+                        bat "del ${file} >nul 2>&1"
+                        bat "mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
+                        if (!lines) {
+                            error "❌ Failed to extract property: ${propName}"
+                        }
+                        return lines[0].trim()
+                    }
+
+                    if (params.RELEVER == 'major') {
+                        def nextMajor = extractProp('parsedVersion.nextMajorVersion')
+                        RELEASE_VERSION = "${nextMajor}.0.0"
+                    } else if (params.RELEVER == 'minor') {
+                        def major = extractProp('parsedVersion.majorVersion')
+                        def nextMinor = extractProp('parsedVersion.nextMinorVersion')
+                        RELEASE_VERSION = "${major}.${nextMinor}.0"
+                    } else if (params.RELEVER == 'hotfix') {
+                        def major = extractProp('parsedVersion.majorVersion')
+                        def minor = extractProp('parsedVersion.minorVersion')
+                        def patch = extractProp('parsedVersion.nextIncrementalVersion')
+                        RELEASE_VERSION = "${major}.${minor}.${patch}"
+                    }
+
+                    SNAPSHOT_VERSION = "${RELEASE_VERSION}-SNAPSHOT"
+                    echo "🏷️ Computed RELEASE_VERSION=${RELEASE_VERSION}, SNAPSHOT_VERSION=${SNAPSHOT_VERSION}"
+                }
+            }
+        }
+
+        stage('Maven Release') {
+            steps {
+                script {
+                    // Ensure mvn is in system PATH for subprocess
+                    env.PATH = "${env.MAVEN_HOME}\\bin;${env.PATH}"
+                    bat """
+                        mvn release:clean release:prepare release:perform -B ^
+                        -DreleaseVersion=${RELEASE_VERSION} ^
+                        -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
+                        -Dtag=release-${RELEASE_VERSION}
+                    """
+                }
+            }
+        }
+
+        stage('Store Version and Build Metadata') {
+            steps {
+                script {
+                    FINAL_VERSION = RELEASE_VERSION
+                    def filePath = 'releases_build_map.log'
+                    def build = env.BUILD_NUMBER
+                    def entry = "${FINAL_VERSION}:${build}"
+
+                    def lines = []
+                    if (fileExists(filePath)) {
+                        def content = readFile(filePath)
+                        lines = content.readLines().collect { it.trim() }.findAll { it }
+                    }
+
+                    lines << entry
+                    lines = lines.unique().takeRight(2)
+                    writeFile file: filePath, text: lines.join('\n')
+
+                    echo "📁 Stored: ${FINAL_VERSION}:${build}"
+                    currentBuild.displayName = FINAL_VERSION
+                }
+            }
+        }
+
+        stage('Build & Package') {
+            steps {
+                script {
+                    bat "mvn clean install -DskipTests=true"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "📦 Archiving Artifacts"
+            archiveArtifacts artifacts: "**/target/*.jar", allowEmptyArchive: true
+        }
+        success {
+            echo "✅ Build succeeded: ${FINAL_VERSION}"
+        }
+        failure {
+            echo "❌ Pipeline failed"
+        }
+    }
+}
