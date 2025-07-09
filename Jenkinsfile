@@ -8,7 +8,6 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'
     }
 
     parameters {
@@ -32,7 +31,6 @@ pipeline {
         stage('Initialize') {
             steps {
                 sh 'mvn --version'
-                sh 'java -version || echo Java not installed'
             }
         }
 
@@ -42,7 +40,6 @@ pipeline {
                     if (!(params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) || ENVIRONMENT != 'PROD') {
                         error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, ENV = ${ENVIRONMENT}"
                     }
-                    echo "✅ Valid branch and environment"
                 }
             }
         }
@@ -50,10 +47,10 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
-                    // Step 1: Run build-helper plugin (required to fill parsedVersion)
+                    // Parse version using plugin
                     sh "mvn build-helper:parse-version"
 
-                    // Step 2: Extract version components one by one
+                    // Extract parsedVersion.* values
                     def major     = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
                     def minor     = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
                     def patch     = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout", returnStdout: true).trim()
@@ -61,8 +58,9 @@ pipeline {
                     def nextMinor = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout", returnStdout: true).trim()
                     def nextPatch = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout", returnStdout: true).trim()
 
-                    echo "Parsed: major=${major}, minor=${minor}, patch=${patch}, nextMajor=${nextMajor}, nextMinor=${nextMinor}, nextPatch=${nextPatch}"
+                    echo "🔍 Parsed: major=${major}, minor=${minor}, patch=${patch}, nextMajor=${nextMajor}, nextMinor=${nextMinor}, nextPatch=${nextPatch}"
 
+                    // Determine release version based on RELEVER param
                     if (params.RELEVER == 'major') {
                         RELEASE_VERSION = "${nextMajor}.0.0"
                     } else if (params.RELEVER == 'minor') {
@@ -72,7 +70,8 @@ pipeline {
                     }
 
                     SNAPSHOT_VERSION = "${RELEASE_VERSION}-SNAPSHOT"
-                    echo "📊 Computed RELEASE_VERSION=${RELEASE_VERSION}, SNAPSHOT_VERSION=${SNAPSHOT_VERSION}"
+
+                    echo "📊 RELEASE_VERSION=${RELEASE_VERSION}, SNAPSHOT_VERSION=${SNAPSHOT_VERSION}"
                 }
             }
         }
@@ -119,7 +118,6 @@ pipeline {
 
     post {
         always {
-            echo "📦 Archiving Artifacts"
             archiveArtifacts artifacts: "**/target/*.jar", allowEmptyArchive: true
         }
         success {
