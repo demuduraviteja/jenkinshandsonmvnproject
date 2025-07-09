@@ -6,21 +6,17 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        //jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk'
     }
 
     environment {
         TIMESTAMP            = "${new Date().format('yyyyMMdd.HHmmss')}"
         GIT_REPO             = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
-        //NEXUS_REPO           = 'https://repo.td.com/repository/eets-staging-authenticated'
-        //GROUP_ID             = 'BSM/LAMP'
-        //ARTIFACT_ID          = 'slr-platform'
         GIT_CREDENTIALS_ID   = 'github-pat'
-        //NEXUS_CREDENTIALS_ID = 'lamp_nexus'
     }
 
     parameters {
-        string(name: 'BRANCH_NAME', defaultValue: 'develop', description: 'Git branch to build')
+        string(name: 'BRANCH_NAME', defaultValue: 'master_version', description: 'Git branch to build')
         choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release type')
     }
 
@@ -63,53 +59,95 @@ pipeline {
             }
         }
 
-        stage('Determine Release Version') {
-            when {
-                expression { params.BRANCH_NAME.startsWith('master') && params.RELEVER == 'major' }
-            }
+        stage('Handle Versioning (Hybrid)') {
             steps {
                 script {
-                    echo "🔍 Parsing current version and computing next major version..."
+                    echo "🔍 Parsing current version and computing next ${params.RELEVER} version..."
 
-                    def nextMajor = sh(
-                        script: """mvn help:evaluate -Dexpression=project.version -q -DforceStdout | sed 's/-SNAPSHOT//' | awk -F. '{print \$1 + 1}'""",
-                        returnStdout: true
-                    ).trim()
+                    if (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) {
+                        // Manual version parsing for release plugin
+                        def currentVersion = sh(
+                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout | sed 's/-SNAPSHOT//'",
+                            returnStdout: true
+                        ).trim()
 
-                    env.RELEASE_VERSION = "${nextMajor}.0.0"
-                    env.NEXT_SNAPSHOT_VERSION = "${env.RELEASE_VERSION}-SNAPSHOT"
+                        def parts = currentVersion.tokenize('.')
+                        def major = parts[0].toInteger()
+                        def minor = parts[1].toInteger()
+                        def patch = parts[2].toInteger()
 
-                    echo "📦 Calculated releaseVersion=${env.RELEASE_VERSION}, nextSnapshot=${env.NEXT_SNAPSHOT_VERSION}"
-                }
-            }
-        }
+                        if (params.RELEVER == 'major') {
+                            major += 1; minor = 0; patch = 0
+                        } else if (params.RELEVER == 'minor') {
+                            minor += 1; patch = 0
+                        } else if (params.RELEVER == 'hotfix') {
+                            patch += 1
+                        } else {
+                            error "❌ Unsupported RELEVER type: ${params.RELEVER}"
+                        }
 
-        stage('Release Master with Tag') {
-            when {
-                expression { params.BRANCH_NAME.startsWith('master') && params.RELEVER == 'major' }
-            }
-            steps {
-                script {
-                    echo "🏷️ Releasing version: ${env.RELEASE_VERSION}, Next dev version: ${env.NEXT_SNAPSHOT_VERSION}"
+                        def releaseVersion = "${major}.${minor}.${patch}"
+                        def snapshotVersion = "${releaseVersion}-SNAPSHOT"
 
-                    sh """
-                        mvn release:clean release:prepare release:perform \
-                          -DreleaseVersion=${env.RELEASE_VERSION} \
-                          -DdevelopmentVersion=${env.NEXT_SNAPSHOT_VERSION} \
-                          -B
-                    """
+                        env.RELEASE_VERSION = releaseVersion
+                        env.NEXT_SNAPSHOT_VERSION = snapshotVersion
+
+                        echo "🏷️ Releasing version: ${releaseVersion}, Next dev version: ${snapshotVersion}"
+
+                        withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIALS_ID}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+                            sh """
+                                git config user.name "jenkins"
+                                git config user.email "jenkins@ci.local"
+                                git config credential.helper store
+                                echo "https://${GIT_USER}:${GIT_TOKEN}@github.com" > ~/.git-credentials
+
+                                mvn release:clean release:prepare release:perform \
+                                  -DreleaseVersion=${releaseVersion} \
+                                  -DdevelopmentVersion=${snapshotVersion} \
+                                  -B
+
+                                rm -f ~/.git-credentials
+                            """
+                        }
+
+                    } else {
+                        // Auto-increment using build-helper for lower env branches
+                        echo "🔄 Using build-helper plugin for auto versioning"
+
+                        if (params.RELEVER == 'major') {
+                            sh '''
+                                mvn build-helper:parse-version versions:set \
+                                -DnewVersion=\\${parsedVersion.nextMajorVersion}.0.0 \
+                                versions:commit
+                            '''
+                        } else if (params.RELEVER == 'minor') {
+                            sh '''
+                                mvn build-helper:parse-version versions:set \
+                                -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.nextMinorVersion}.0 \
+                                versions:commit
+                            '''
+                        } else if (params.RELEVER == 'hotfix') {
+                            sh '''
+                                mvn build-helper:parse-version versions:set \
+                                -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.minorVersion}.\\${parsedVersion.nextIncrementalVersion} \
+                                versions:commit
+                            '''
+                        } else {
+                            error "❌ Unsupported RELEVER type: ${params.RELEVER}"
+                        }
+                    }
                 }
             }
         }
 
         stage('Update Lower Env Branches to SNAPSHOT') {
             when {
-                expression { params.BRANCH_NAME == 'master' && params.RELEVER == 'major' }
+                expression { params.BRANCH_NAME.startsWith('master') }
             }
             steps {
                 script {
                     def snapshotVersion = env.NEXT_SNAPSHOT_VERSION
-                    def branchesToUpdate = ['develop', 'feature/lampfeature'] // 🔁 Add more as needed
+                    def branchesToUpdate = ['develop', 'feature/lampfeature']
 
                     branchesToUpdate.each { branch ->
                         echo "🔁 Updating ${branch} to version ${snapshotVersion}"
@@ -121,46 +159,20 @@ pipeline {
                                 credentialsId: "${GIT_CREDENTIALS_ID}"
                             )
 
-                            sh """
-                                mvn versions:set -DnewVersion=${snapshotVersion}
-                                mvn versions:commit
-                                git config user.name "jenkins"
-                                git config user.email "jenkins@ci.local"
-                                git commit -am '🔄 Set version to ${snapshotVersion} after master release'
-                                git push origin ${branch}
-                            """
+                            withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIALS_ID}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+                                sh """
+                                    mvn versions:set -DnewVersion=${snapshotVersion}
+                                    mvn versions:commit
+                                    git config user.name "jenkins"
+                                    git config user.email "jenkins@ci.local"
+                                    git commit -am '🔄 Set version to ${snapshotVersion} after master release'
+                                    git config credential.helper store
+                                    echo "https://${GIT_USER}:${GIT_TOKEN}@github.com" > ~/.git-credentials
+                                    git push origin ${branch}
+                                    rm -f ~/.git-credentials
+                                """
+                            }
                         }
-                    }
-                }
-            }
-        }
-
-        stage('Auto-Increment Version') {
-            when {
-                expression { !(params.BRANCH_NAME == 'master' && params.RELEVER == 'major') }
-            }
-            steps {
-                script {
-                    if (params.RELEVER == 'major') {
-                        sh '''
-                            mvn build-helper:parse-version versions:set \
-                            -DnewVersion=\\${parsedVersion.nextMajorVersion}.0.0 \
-                            versions:commit
-                        '''
-                    } else if (params.RELEVER == 'minor') {
-                        sh '''
-                            mvn build-helper:parse-version versions:set \
-                            -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.nextMinorVersion}.0 \
-                            versions:commit
-                        '''
-                    } else if (params.RELEVER == 'hotfix') {
-                        sh '''
-                            mvn build-helper:parse-version versions:set \
-                            -DnewVersion=\\${parsedVersion.majorVersion}.\\${parsedVersion.minorVersion}.\\${parsedVersion.nextIncrementalVersion} \
-                            versions:commit
-                        '''
-                    } else {
-                        error "❌ Unsupported release version type: ${params.RELEVER}"
                     }
                 }
             }
