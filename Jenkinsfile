@@ -47,19 +47,16 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
-                    // Combine version parsing and extraction
+                    // Run parse-version + evaluate together for each property
                     sh '''
-                        mvn build-helper:parse-version \
-                            help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout > major.txt
-                        
-                        mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout > minor.txt
-                        mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout > patch.txt
-                        mvn help:evaluate -Dexpression=parsedVersion.nextMajorVersion -q -DforceStdout > nextMajor.txt
-                        mvn help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout > nextMinor.txt
-                        mvn help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout > nextPatch.txt
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout > major.txt
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout > minor.txt
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout > patch.txt
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.nextMajorVersion -q -DforceStdout > nextMajor.txt
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout > nextMinor.txt
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout > nextPatch.txt
                     '''
 
-                    // Read parsed version values
                     def major     = readFile('major.txt').trim()
                     def minor     = readFile('minor.txt').trim()
                     def patch     = readFile('patch.txt').trim()
@@ -69,7 +66,6 @@ pipeline {
 
                     echo "🔍 Parsed: major=${major}, minor=${minor}, patch=${patch}, nextMajor=${nextMajor}, nextMinor=${nextMinor}, nextPatch=${nextPatch}"
 
-                    // Determine RELEASE_VERSION and SNAPSHOT_VERSION
                     if (params.RELEVER == 'major') {
                         RELEASE_VERSION = "${nextMajor}.0.0"
                     } else if (params.RELEVER == 'minor') {
@@ -79,7 +75,11 @@ pipeline {
                     }
 
                     SNAPSHOT_VERSION = "${RELEASE_VERSION}-SNAPSHOT"
+
                     echo "📦 RELEASE_VERSION=${RELEASE_VERSION}, SNAPSHOT_VERSION=${SNAPSHOT_VERSION}"
+
+                    // Clean up temporary version files
+                    sh 'rm -f *.txt'
                 }
             }
         }
