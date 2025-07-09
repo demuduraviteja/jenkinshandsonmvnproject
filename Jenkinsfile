@@ -17,13 +17,9 @@ pipeline {
     }
 
     environment {
-        TIMESTAMP            = "${new Date().format('yyyyMMdd.HHmmss')}"
-        GIT_REPO             = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
-        //NEXUS_REPO           = 'https://repo.td.com/repository/eets-staging-authenticated'
-        //GROUP_ID             = 'TBSW/LAMP'
-        //ARTIFACT_ID          = 'slr-platform'
-        GIT_CREDENTIALS_ID   = 'github-PAT'
-        //NEXUS_CREDENTIALS_ID = 'lamp_nexus'
+        TIMESTAMP          = "${new Date().format('yyyyMMdd.HHmmss')}"
+        GIT_REPO           = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
+        GIT_CREDENTIALS_ID = 'github-PAT'
     }
 
     stages {
@@ -35,9 +31,8 @@ pipeline {
 
         stage('Initialize') {
             steps {
-                echo "🔍 Verifying tools"
                 sh 'mvn --version'
-                sh 'java -version'
+                sh 'java -version || echo Java not installed on agent'
             }
         }
 
@@ -55,35 +50,33 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
-                    def extractProp = { propName ->
-                        def file = "tmp_${propName}.txt"
-                        sh "rm -f ${file}"
+                    // Run build-helper:parse-version and capture the output
+                    def output = sh(script: '''
+                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout
+                        mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout
+                        mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout
+                        mvn help:evaluate -Dexpression=parsedVersion.nextMajorVersion -q -DforceStdout
+                        mvn help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout
+                        mvn help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout
+                    ''', returnStdout: true).trim().split("\n")
 
-                        // Step 1: Run parse-version plugin
-                        sh "mvn build-helper:parse-version"
+                    def major = output[0]?.trim()
+                    def minor = output[1]?.trim()
+                    def patch = output[2]?.trim()
+                    def nextMajor = output[3]?.trim()
+                    def nextMinor = output[4]?.trim()
+                    def nextPatch = output[5]?.trim()
 
-                        // Step 2: Extract the parsed version component
-                        sh "mvn help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
-
-                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
-                        if (!lines) {
-                            error "❌ Failed to extract property: ${propName}"
-                        }
-                        return lines[0].trim()
+                    if (!major || !minor || !patch || !nextMajor || !nextMinor || !nextPatch) {
+                        error "❌ Failed to extract parsed version components from pom.xml"
                     }
 
                     if (params.RELEVER == 'major') {
-                        def nextMajor = extractProp('parsedVersion.nextMajorVersion')
                         RELEASE_VERSION = "${nextMajor}.0.0"
                     } else if (params.RELEVER == 'minor') {
-                        def major = extractProp('parsedVersion.majorVersion')
-                        def nextMinor = extractProp('parsedVersion.nextMinorVersion')
                         RELEASE_VERSION = "${major}.${nextMinor}.0"
                     } else if (params.RELEVER == 'hotfix') {
-                        def major = extractProp('parsedVersion.majorVersion')
-                        def minor = extractProp('parsedVersion.minorVersion')
-                        def patch = extractProp('parsedVersion.nextIncrementalVersion')
-                        RELEASE_VERSION = "${major}.${minor}.${patch}"
+                        RELEASE_VERSION = "${major}.${minor}.${nextPatch}"
                     }
 
                     SNAPSHOT_VERSION = "${RELEASE_VERSION}-SNAPSHOT"
@@ -94,14 +87,12 @@ pipeline {
 
         stage('Maven Release') {
             steps {
-                script {
-                    sh """
-                        mvn release:clean release:prepare release:perform -B \\
-                            -DreleaseVersion=${RELEASE_VERSION} \\
-                            -DdevelopmentVersion=${SNAPSHOT_VERSION} \\
-                            -Dtag=release-${RELEASE_VERSION}
-                    """
-                }
+                sh """
+                    mvn release:clean release:prepare release:perform -B \\
+                        -DreleaseVersion=${RELEASE_VERSION} \\
+                        -DdevelopmentVersion=${SNAPSHOT_VERSION} \\
+                        -Dtag=release-${RELEASE_VERSION}
+                """
             }
         }
 
@@ -115,8 +106,7 @@ pipeline {
 
                     def lines = []
                     if (fileExists(filePath)) {
-                        def content = readFile(filePath)
-                        lines = content.readLines().collect { it.trim() }.findAll { it }
+                        lines = readFile(filePath).readLines().collect { it.trim() }.findAll { it }
                     }
                     lines << entry
                     lines = lines.unique().takeRight(2)
@@ -130,9 +120,7 @@ pipeline {
 
         stage('Build & Package') {
             steps {
-                script {
-                    sh "mvn clean install -DskipTests=true"
-                }
+                sh "mvn clean install -DskipTests=true"
             }
         }
     }
