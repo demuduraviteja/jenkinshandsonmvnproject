@@ -8,29 +8,24 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'  // Uncomment if you configure Java
+        // jdk 'java-11-openjdk'
     }
 
     parameters {
         string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level: major, minor, hotfix')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
     }
 
     environment {
-        TIMESTAMP            = "${new Date().format('yyyyMMdd.HHmmss')}"
-        GIT_REPO             = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
-        GIT_CREDENTIALS_ID   = 'github-PAT'
+        TIMESTAMP          = "${new Date().format('yyyyMMdd.HHmmss')}"
+        GIT_REPO           = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
+        GIT_CREDENTIALS_ID = 'github-PAT'
     }
 
     stages {
-
         stage('Checkout Code') {
             steps {
-                git(
-                    branch: "${params.BRANCH_NAME}",
-                    url: "${GIT_REPO}",
-                    credentialsId: "${GIT_CREDENTIALS_ID}"
-                )
+                git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}", credentialsId: "${GIT_CREDENTIALS_ID}"
             }
         }
 
@@ -38,16 +33,14 @@ pipeline {
             steps {
                 echo "🔧 Checking tool versions"
                 bat 'mvn --version'
-                // bat 'java -version'
             }
         }
 
         stage('Validate Branch and Environment') {
             steps {
                 script {
-                    def isValid = (params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) && ENVIRONMENT == 'PROD'
-                    if (!isValid) {
-                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, Environment = ${ENVIRONMENT}"
+                    if (!(params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) || ENVIRONMENT != 'PROD') {
+                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, ENV = ${ENVIRONMENT}"
                     }
                     echo "✅ Valid branch and environment"
                 }
@@ -59,29 +52,30 @@ pipeline {
                 script {
                     bat 'mvn build-helper:parse-version'
 
-                    def getMavenProperty = { prop ->
-                        def file = "output_${prop}.txt"
-                        bat """
-                            del ${file} >nul 2>&1
-                            mvn help:evaluate -Dexpression=${prop} -q -DforceStdout > ${file}
-                        """
-                        return readFile(file).readLines().find { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }.trim()
+                    def extractProp = { propName ->
+                        def file = "tmp_${propName}.txt"
+                        bat "del ${file} >nul 2>&1"
+                        bat "mvn help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        return readFile(file).readLines().find { it.trim() && !it.contains("Downloading") && !it.contains("WARNING") }?.trim()
                     }
 
                     if (params.RELEVER == 'major') {
-                        def nextMajor = getMavenProperty("parsedVersion.nextMajorVersion")
+                        def nextMajor = extractProp('parsedVersion.nextMajorVersion')
+                        if (!nextMajor) error "❌ Failed to extract nextMajorVersion"
                         RELEASE_VERSION = "${nextMajor}.0.0"
+
                     } else if (params.RELEVER == 'minor') {
-                        def major = getMavenProperty("parsedVersion.majorVersion")
-                        def nextMinor = getMavenProperty("parsedVersion.nextMinorVersion")
+                        def major = extractProp('parsedVersion.majorVersion')
+                        def nextMinor = extractProp('parsedVersion.nextMinorVersion')
+                        if (!major || !nextMinor) error "❌ Failed to extract minor version info"
                         RELEASE_VERSION = "${major}.${nextMinor}.0"
+
                     } else if (params.RELEVER == 'hotfix') {
-                        def major = getMavenProperty("parsedVersion.majorVersion")
-                        def minor = getMavenProperty("parsedVersion.minorVersion")
-                        def nextPatch = getMavenProperty("parsedVersion.nextIncrementalVersion")
-                        RELEASE_VERSION = "${major}.${minor}.${nextPatch}"
-                    } else {
-                        error "❌ Invalid RELEVER: ${params.RELEVER}"
+                        def major = extractProp('parsedVersion.majorVersion')
+                        def minor = extractProp('parsedVersion.minorVersion')
+                        def patch = extractProp('parsedVersion.nextIncrementalVersion')
+                        if (!major || !minor || !patch) error "❌ Failed to extract hotfix version info"
+                        RELEASE_VERSION = "${major}.${minor}.${patch}"
                     }
 
                     SNAPSHOT_VERSION = "${RELEASE_VERSION}-SNAPSHOT"
@@ -95,9 +89,9 @@ pipeline {
                 script {
                     bat """
                         mvn release:clean release:prepare release:perform -B ^
-                            -DreleaseVersion=${RELEASE_VERSION} ^
-                            -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
-                            -Dtag=release-${RELEASE_VERSION}
+                        -DreleaseVersion=${RELEASE_VERSION} ^
+                        -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
+                        -Dtag=release-${RELEASE_VERSION}
                     """
                 }
             }
@@ -113,7 +107,7 @@ pipeline {
 
                     def lines = []
                     if (fileExists(filePath)) {
-                        lines = readFile(filePath).split('\n').collect { it.trim() }.findAll { it }
+                        lines = readFile(filePath).split('\n')*.trim().findAll()
                     }
 
                     lines << entry
@@ -137,7 +131,7 @@ pipeline {
     post {
         always {
             echo "📦 Archiving Artifacts"
-            archiveArtifacts artifacts: "*/target/*.jar, */target/*.tar.gz", allowEmptyArchive: true
+            archiveArtifacts artifacts: "**/target/*.jar", allowEmptyArchive: true
         }
         success {
             echo "✅ Build succeeded: ${FINAL_VERSION}"
