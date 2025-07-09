@@ -8,12 +8,12 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        //jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk'
     }
 
     parameters {
         string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level (major/minor/hotfix)')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
     }
 
     environment {
@@ -25,25 +25,40 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: "${params.BRANCH_NAME}", url: "${env.GIT_REPO}", credentialsId: "${env.GIT_CREDENTIALS_ID}"
+                git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}", credentialsId: "${GIT_CREDENTIALS_ID}"
             }
         }
 
         stage('Initialize Tools') {
             steps {
-                echo "🔧 Checking Maven version"
-                bat '"%MAVEN_HOME%\\bin\\mvn" --version'
+                script {
+                    def mvnHome = tool name: 'maven-3.9.6'
+                    env.MAVEN_HOME = mvnHome
+                    env.PATH = "${mvnHome}\\bin;${env.PATH}"
+                    bat "\"${mvnHome}\\bin\\mvn\" --version"
+                }
             }
         }
 
-        stage('Parse Version & Determine Release Version') {
+        stage('Validate Branch and Environment') {
+            steps {
+                script {
+                    if (!(params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) || ENVIRONMENT != 'PROD') {
+                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, ENV = ${ENVIRONMENT}"
+                    }
+                    echo "✅ Valid branch and environment"
+                }
+            }
+        }
+
+        stage('Parse Version and Determine Release') {
             steps {
                 script {
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
                         bat "del ${file} >nul 2>&1"
-                        bat "\"%MAVEN_HOME%\\bin\\mvn\" build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
-                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") }
+                        bat "mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
                         if (!lines) {
                             error "❌ Failed to extract property: ${propName}"
                         }
@@ -72,12 +87,16 @@ pipeline {
 
         stage('Maven Release') {
             steps {
-                bat """
-                    "%MAVEN_HOME%\\bin\\mvn" release:clean release:prepare release:perform -B ^
-                    -DreleaseVersion=${RELEASE_VERSION} ^
-                    -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
-                    -Dtag=release-${RELEASE_VERSION}
-                """
+                script {
+                    // Ensure mvn is in system PATH for subprocess
+                    env.PATH = "${env.MAVEN_HOME}\\bin;${env.PATH}"
+                    bat """
+                        mvn release:clean release:prepare release:perform -B ^
+                        -DreleaseVersion=${RELEASE_VERSION} ^
+                        -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
+                        -Dtag=release-${RELEASE_VERSION}
+                    """
+                }
             }
         }
 
@@ -107,8 +126,9 @@ pipeline {
 
         stage('Build & Package') {
             steps {
-                echo "🛠️ Running Maven build"
-                bat '"%MAVEN_HOME%\\bin\\mvn" clean install -DskipTests=true'
+                script {
+                    bat "mvn clean install -DskipTests=true"
+                }
             }
         }
     }
