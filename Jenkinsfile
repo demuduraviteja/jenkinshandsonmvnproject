@@ -8,12 +8,12 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk' // Uncomment if JDK needed
+        jdk 'java-11-openjdk'
     }
 
     parameters {
         string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Git branch to build')
-        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level')
+        choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Release level (major/minor/hotfix)')
     }
 
     environment {
@@ -25,41 +25,25 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: "${params.BRANCH_NAME}", url: "${GIT_REPO}", credentialsId: "${GIT_CREDENTIALS_ID}"
+                git branch: "${params.BRANCH_NAME}", url: "${env.GIT_REPO}", credentialsId: "${env.GIT_CREDENTIALS_ID}"
             }
         }
 
         stage('Initialize Tools') {
             steps {
-                script {
-                    def mvnHome = tool name: 'maven-3.9.6'
-                    bat "\"${mvnHome}\\bin\\mvn\" --version"
-                }
+                echo "🔧 Checking Maven version"
+                bat '"%MAVEN_HOME%\\bin\\mvn" --version'
             }
         }
 
-        stage('Validate Branch and Environment') {
+        stage('Parse Version & Determine Release Version') {
             steps {
                 script {
-                    if (!(params.BRANCH_NAME.startsWith('master') || params.BRANCH_NAME.startsWith('hotfix')) || ENVIRONMENT != 'PROD') {
-                        error "❌ Invalid combination: Branch = ${params.BRANCH_NAME}, ENV = ${ENVIRONMENT}"
-                    }
-                    echo "✅ Valid branch and environment"
-                }
-            }
-        }
-
-        stage('Parse Version and Determine Release') {
-            steps {
-                script {
-                    def mvnHome = tool name: 'maven-3.9.6'
-                    def mvnCmd = "\"${mvnHome}\\bin\\mvn\""
-
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
                         bat "del ${file} >nul 2>&1"
-                        bat "${mvnCmd} build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
-                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
+                        bat "\"%MAVEN_HOME%\\bin\\mvn\" build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") }
                         if (!lines) {
                             error "❌ Failed to extract property: ${propName}"
                         }
@@ -88,16 +72,12 @@ pipeline {
 
         stage('Maven Release') {
             steps {
-                script {
-                    def mvnHome = tool name: 'maven-3.9.6'
-                    def mvnCmd = "\"${mvnHome}\\bin\\mvn\""
-                    bat """
-                        ${mvnCmd} release:clean release:prepare release:perform -B ^
-                        -DreleaseVersion=${RELEASE_VERSION} ^
-                        -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
-                        -Dtag=release-${RELEASE_VERSION}
-                    """
-                }
+                bat """
+                    "%MAVEN_HOME%\\bin\\mvn" release:clean release:prepare release:perform -B ^
+                    -DreleaseVersion=${RELEASE_VERSION} ^
+                    -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
+                    -Dtag=release-${RELEASE_VERSION}
+                """
             }
         }
 
@@ -127,11 +107,8 @@ pipeline {
 
         stage('Build & Package') {
             steps {
-                script {
-                    def mvnHome = tool name: 'maven-3.9.6'
-                    def mvnCmd = "\"${mvnHome}\\bin\\mvn\""
-                    bat "${mvnCmd} clean install -DskipTests=true"
-                }
+                echo "🛠️ Running Maven build"
+                bat '"%MAVEN_HOME%\\bin\\mvn" clean install -DskipTests=true'
             }
         }
     }
