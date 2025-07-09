@@ -8,7 +8,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        // jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk' // Enable if needed
     }
 
     parameters {
@@ -35,7 +35,7 @@ pipeline {
                     def mvnHome = tool name: 'maven-3.9.6'
                     env.MAVEN_HOME = mvnHome
                     env.PATH = "${mvnHome}\\bin;${env.PATH}"
-                    bat "\"${mvnHome}\\bin\\mvn\" --version"
+                    bat "\"${mvnHome}\\bin\\mvn.cmd\" --version"
                 }
             }
         }
@@ -57,7 +57,7 @@ pipeline {
                     def extractProp = { propName ->
                         def file = "tmp_${propName}.txt"
                         bat "del ${file} >nul 2>&1"
-                        bat "mvn build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
+                        bat "\"${env.MAVEN_HOME}\\bin\\mvn.cmd\" build-helper:parse-version help:evaluate -Dexpression=${propName} -q -DforceStdout > ${file}"
                         def lines = readFile(file).readLines().findAll { it?.trim() && !it.contains("Downloading") && !it.contains("WARNING") }
                         if (!lines) {
                             error "❌ Failed to extract property: ${propName}"
@@ -88,10 +88,8 @@ pipeline {
         stage('Maven Release') {
             steps {
                 script {
-                    // Ensure mvn is in system PATH for subprocess
-                    env.PATH = "${env.MAVEN_HOME}\\bin;${env.PATH}"
                     bat """
-                        mvn release:clean release:prepare release:perform -B ^
+                        "${env.MAVEN_HOME}\\bin\\mvn.cmd" release:clean release:prepare release:perform -B ^
                         -DreleaseVersion=${RELEASE_VERSION} ^
                         -DdevelopmentVersion=${SNAPSHOT_VERSION} ^
                         -Dtag=release-${RELEASE_VERSION}
@@ -127,7 +125,7 @@ pipeline {
         stage('Build & Package') {
             steps {
                 script {
-                    bat "mvn clean install -DskipTests=true"
+                    bat "\"${env.MAVEN_HOME}\\bin\\mvn.cmd\" clean install -DskipTests=true"
                 }
             }
         }
