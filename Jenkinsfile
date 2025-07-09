@@ -8,7 +8,7 @@ pipeline {
 
     tools {
         maven 'maven-3.9.6'
-        //jdk 'java-11-openjdk'
+        // jdk 'java-11-openjdk' // uncomment if Java setup is managed by Jenkins
     }
 
     parameters {
@@ -50,27 +50,20 @@ pipeline {
         stage('Parse Version and Determine Release') {
             steps {
                 script {
-                    // Run build-helper:parse-version and capture the output
-                    def output = sh(script: '''
-                        mvn build-helper:parse-version help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout
-                        mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout
-                        mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout
-                        mvn help:evaluate -Dexpression=parsedVersion.nextMajorVersion -q -DforceStdout
-                        mvn help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout
-                        mvn help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout
-                    ''', returnStdout: true).trim().split("\n")
+                    // First parse the version
+                    sh "mvn build-helper:parse-version"
 
-                    def major = output[0]?.trim()
-                    def minor = output[1]?.trim()
-                    def patch = output[2]?.trim()
-                    def nextMajor = output[3]?.trim()
-                    def nextMinor = output[4]?.trim()
-                    def nextPatch = output[5]?.trim()
+                    // Now extract version components individually
+                    def major      = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.majorVersion -q -DforceStdout", returnStdout: true).trim()
+                    def minor      = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.minorVersion -q -DforceStdout", returnStdout: true).trim()
+                    def patch      = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.incrementalVersion -q -DforceStdout", returnStdout: true).trim()
+                    def nextMajor  = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.nextMajorVersion -q -DforceStdout", returnStdout: true).trim()
+                    def nextMinor  = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.nextMinorVersion -q -DforceStdout", returnStdout: true).trim()
+                    def nextPatch  = sh(script: "mvn help:evaluate -Dexpression=parsedVersion.nextIncrementalVersion -q -DforceStdout", returnStdout: true).trim()
 
-                    if (!major || !minor || !patch || !nextMajor || !nextMinor || !nextPatch) {
-                        error "❌ Failed to extract parsed version components from pom.xml"
-                    }
+                    echo "🔢 Parsed version: major=${major}, minor=${minor}, patch=${patch}, nextMajor=${nextMajor}, nextMinor=${nextMinor}, nextPatch=${nextPatch}"
 
+                    // Determine release version based on RELEVER
                     if (params.RELEVER == 'major') {
                         RELEASE_VERSION = "${nextMajor}.0.0"
                     } else if (params.RELEVER == 'minor') {
