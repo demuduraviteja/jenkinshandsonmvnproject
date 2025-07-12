@@ -40,11 +40,6 @@ pipeline {
                     def baseVersion = currentVersion.replace("-SNAPSHOT", "")
                     def parts = baseVersion.tokenize('.')
 
-                    if (parts.size() < 2) {
-                        error("❌ Version must have at least major.minor (X.Y). Found: ${currentVersion}")
-                    }
-
-                    // Fill missing parts with 0
                     while (parts.size() < 3) {
                         parts << '0'
                     }
@@ -53,7 +48,6 @@ pipeline {
                     def minor = parts[1] as int
                     def patch = parts[2] as int
 
-                    // Auto bump based on RELEVER
                     if (params.RELEVER == 'major') {
                         major += 1
                         minor = 0
@@ -80,15 +74,17 @@ pipeline {
 
         stage('Run Maven Release') {
             steps {
-                sh '''
-                    git config user.name "demuduraviteja"
-                    git config user.email "shanmukha2342@gmail.com"
+                script {
+                    sh """
+                        git config user.name "demuduraviteja"
+                        git config user.email "shanmukha2342@gmail.com"
 
-                    mvn release:clean release:prepare release:perform -B \
-                        -DreleaseVersion=${RELEASE_VERSION} \
-                        -DdevelopmentVersion=${SNAPSHOT_VERSION} \
-                        -Dtag=${TAG_NAME}
-                '''
+                        mvn release:clean release:prepare release:perform -B \
+                            -DreleaseVersion=${env.RELEASE_VERSION} \
+                            -DdevelopmentVersion=${env.SNAPSHOT_VERSION} \
+                            -Dtag=${env.TAG_NAME}
+                    """
+                }
             }
         }
 
@@ -101,7 +97,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Build completed successfully with tag: ${TAG_NAME}"
+            echo "✅ Build completed successfully with tag: ${env.TAG_NAME}"
         }
         failure {
             echo "❌ Build or release process failed."
