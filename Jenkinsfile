@@ -53,12 +53,11 @@ pipeline {
                         error("❌ Invalid RELEVER: ${params.RELEVER}")
                     }
 
-                    // Store as local variables first
                     def releaseVersion = "${major}.${minor}.${patch}"
-                    def snapshotVersion = "${major}.${minor}.${patch + 1}-SNAPSHOT"
+                    def snapshotVersion = "${releaseVersion}-SNAPSHOT"
                     def tagName = "release-${releaseVersion}"
 
-                    // Export to env variables explicitly
+                    // Export to environment
                     env.RELEASE_VERSION = releaseVersion
                     env.SNAPSHOT_VERSION = snapshotVersion
                     env.TAG_NAME = tagName
