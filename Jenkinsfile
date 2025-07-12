@@ -6,6 +6,7 @@ pipeline {
     }
 
     parameters {
+        string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch to build')
         choice(name: 'RELEVER', choices: ['major', 'minor', 'hotfix'], description: 'Version bump type')
     }
 
@@ -20,7 +21,7 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: 'master', credentialsId: "${GIT_CREDENTIALS_ID}", url: "${GIT_REPO}"
+                git branch: "${params.BRANCH}", credentialsId: "${GIT_CREDENTIALS_ID}", url: "${GIT_REPO}"
             }
         }
 
@@ -39,8 +40,13 @@ pipeline {
                     def baseVersion = currentVersion.replace("-SNAPSHOT", "")
                     def parts = baseVersion.tokenize('.')
 
-                    if (parts.size() != 3) {
-                        error("❌ Version must follow semantic format (X.Y.Z-SNAPSHOT). Found: ${currentVersion}")
+                    if (parts.size() < 2) {
+                        error("❌ Version must have at least major.minor (X.Y). Found: ${currentVersion}")
+                    }
+
+                    // Fill missing parts with 0
+                    while (parts.size() < 3) {
+                        parts << '0'
                     }
 
                     def major = parts[0] as int
@@ -75,8 +81,8 @@ pipeline {
         stage('Run Maven Release') {
             steps {
                 sh '''
-                    git config user.name "Jenkins"
-                    git config user.email "jenkins@ci.local"
+                    git config user.name "demuduraviteja"
+                    git config user.email "shanmukha2342@gmail.com"
 
                     mvn release:clean release:prepare release:perform -B \
                         -DreleaseVersion=${RELEASE_VERSION} \
