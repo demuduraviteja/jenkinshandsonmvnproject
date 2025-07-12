@@ -13,9 +13,6 @@ pipeline {
     environment {
         GIT_REPO           = 'https://github.com/demuduraviteja/jenkinshandsonmvnproject.git'
         GIT_CREDENTIALS_ID = 'github-PAT'
-        RELEASE_VERSION    = ''
-        SNAPSHOT_VERSION   = ''
-        TAG_NAME           = ''
     }
 
     stages {
@@ -25,7 +22,7 @@ pipeline {
             }
         }
 
-        stage('Parse Version from pom.xml') {
+        stage('Parse Version and Export') {
             steps {
                 script {
                     def pom = readMavenPom file: 'pom.xml'
@@ -40,30 +37,31 @@ pipeline {
                     def baseVersion = currentVersion.replace("-SNAPSHOT", "")
                     def parts = baseVersion.tokenize('.')
 
-                    while (parts.size() < 3) {
-                        parts << '0'
-                    }
+                    while (parts.size() < 3) { parts << '0' }
 
                     def major = parts[0] as int
                     def minor = parts[1] as int
                     def patch = parts[2] as int
 
                     if (params.RELEVER == 'major') {
-                        major += 1
-                        minor = 0
-                        patch = 0
+                        major += 1; minor = 0; patch = 0
                     } else if (params.RELEVER == 'minor') {
-                        minor += 1
-                        patch = 0
+                        minor += 1; patch = 0
                     } else if (params.RELEVER == 'hotfix') {
                         patch += 1
                     } else {
-                        error("❌ Invalid RELEVER value: ${params.RELEVER}")
+                        error("❌ Invalid RELEVER: ${params.RELEVER}")
                     }
 
-                    env.RELEASE_VERSION = "${major}.${minor}.${patch}"
-                    env.SNAPSHOT_VERSION = "${major}.${minor}.${patch + 1}-SNAPSHOT"
-                    env.TAG_NAME = "release-${env.RELEASE_VERSION}"
+                    // Store as local variables first
+                    def releaseVersion = "${major}.${minor}.${patch}"
+                    def snapshotVersion = "${major}.${minor}.${patch + 1}-SNAPSHOT"
+                    def tagName = "release-${releaseVersion}"
+
+                    // Export to env variables explicitly
+                    env.RELEASE_VERSION = releaseVersion
+                    env.SNAPSHOT_VERSION = snapshotVersion
+                    env.TAG_NAME = tagName
 
                     echo "✅ RELEASE_VERSION = ${env.RELEASE_VERSION}"
                     echo "🔄 SNAPSHOT_VERSION = ${env.SNAPSHOT_VERSION}"
@@ -75,6 +73,11 @@ pipeline {
         stage('Run Maven Release') {
             steps {
                 script {
+                    echo "🚀 Executing Maven Release with:"
+                    echo "  ➤ Release Version = ${env.RELEASE_VERSION}"
+                    echo "  ➤ Snapshot Version = ${env.SNAPSHOT_VERSION}"
+                    echo "  ➤ Tag = ${env.TAG_NAME}"
+
                     sh """
                         git config user.name "demuduraviteja"
                         git config user.email "shanmukha2342@gmail.com"
