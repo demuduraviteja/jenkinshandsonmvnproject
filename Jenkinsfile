@@ -86,7 +86,7 @@ pipeline {
                             -Dtag=${env.TAG_NAME}
 
                         echo "📦 Artifacts deployed to:"
-                        find target/local-maven-repo -type f -name "*.jar"
+                        find target/checkout/target/local-maven-repo -type f -name "*.jar"
                     """
                 }
             }
