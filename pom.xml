@@ -4,7 +4,7 @@
 
   <groupId>org.ravi.devops</groupId>
   <artifactId>MavenSampleApp</artifactId>
-  <version>6.0.0</version>
+  <version>6.0.1-SNAPSHOT</version>
 
   <name>MavenSampleApp</name>
   <!-- FIXME change it to the project's website -->
@@ -120,6 +120,6 @@
     <connection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</connection>
     <developerConnection>scm:git:https://github.com/demuduraviteja/jenkinshandsonmvnproject.git</developerConnection>
     <url>https://github.com/demuduraviteja/jenkinshandsonmvnproject</url>
-    <tag>release-6.0.0</tag>
+    <tag></tag>
   </scm>
 </project>
