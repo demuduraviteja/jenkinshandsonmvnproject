@@ -57,7 +57,6 @@ pipeline {
                     def snapshotVersion = "${releaseVersion}-SNAPSHOT"
                     def tagName = "release-${releaseVersion}"
 
-                    // Export to environment
                     env.RELEASE_VERSION = releaseVersion
                     env.SNAPSHOT_VERSION = snapshotVersion
                     env.TAG_NAME = tagName
@@ -81,10 +80,13 @@ pipeline {
                         git config user.name "demuduraviteja"
                         git config user.email "shanmukha2342@gmail.com"
 
-                        mvn release:clean release:prepare release:perform -B \
-                            -DreleaseVersion=${env.RELEASE_VERSION} \
-                            -DdevelopmentVersion=${env.SNAPSHOT_VERSION} \
+                        mvn release:clean release:prepare release:perform -B \\
+                            -DreleaseVersion=${env.RELEASE_VERSION} \\
+                            -DdevelopmentVersion=${env.SNAPSHOT_VERSION} \\
                             -Dtag=${env.TAG_NAME}
+
+                        echo "📦 Artifacts deployed to:"
+                        find target/local-maven-repo -type f -name "*.jar"
                     """
                 }
             }
